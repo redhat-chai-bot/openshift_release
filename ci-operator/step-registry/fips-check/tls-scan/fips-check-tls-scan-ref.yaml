@@ -1,0 +1,15 @@
+ref:
+  as: fips-check-tls-scan
+  from: cli
+  commands: fips-check-tls-scan-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  timeout: 1h0m0s
+  grace_period: 5m0s
+  documentation: |-
+    Runs the TLS scanner against all pods in the FIPS-enabled test cluster.
+    The scanner is deployed as a privileged pod with hostNetwork and hostPID
+    access, scanning all pod TLS configurations. Produces JUnit XML and
+    detailed scan artifacts. Fails the step if TLS compliance issues are found.

@@ -1094,6 +1094,7 @@ tests:
     test:
     - ref: fips-check-node-scan
     - ref: fips-check-art-fips
+    - ref: fips-check-tls-scan
     workflow: ipi-aws
 zz_generated_metadata:
   branch: main
