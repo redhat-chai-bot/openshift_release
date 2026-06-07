@@ -131,37 +131,14 @@ tide:
     - release-4.9
     labels:
     - approved
-    - docs-approved
     - jira/valid-reference
     - lgtm
-    - px-approved
-    - qe-approved
     missingLabels:
     - backports/unvalidated-commits
     - do-not-merge/hold
     - do-not-merge/invalid-owners-file
     - do-not-merge/work-in-progress
     - jira/invalid-bug
-    - needs-rebase
-    repos:
-    - openshift/route-controller-manager
-  - includedBranches:
-    - main
-    - master
-    labels:
-    - approved
-    - docs-approved
-    - jira/valid-reference
-    - lgtm
-    - px-approved
-    - verified
-    missingLabels:
-    - backports/unvalidated-commits
-    - do-not-merge/hold
-    - do-not-merge/invalid-owners-file
-    - do-not-merge/work-in-progress
-    - jira/invalid-bug
-    - keep-main-query-separate
     - needs-rebase
     repos:
     - openshift/route-controller-manager
