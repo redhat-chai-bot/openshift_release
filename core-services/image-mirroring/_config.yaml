@@ -617,6 +617,8 @@ supplementalCIImages:
     image: quay.io/centos/centos:stream10
   openshift/centos:stream9:
     image: quay.io/centos/centos:stream9
+  openshift/centos:stream10:
+    image: quay.io/centos/centos:stream10
   openshift/centos:stream8:
     image: quay.io/centos/centos:stream8
   openshift/fedora:latest:
