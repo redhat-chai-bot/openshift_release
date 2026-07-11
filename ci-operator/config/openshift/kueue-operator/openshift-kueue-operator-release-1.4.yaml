@@ -17,17 +17,20 @@ images:
   items:
   - additional_architectures:
     - arm64
+    disable_pod_scaler: true
     dockerfile_path: Dockerfile.ci
     to: kueue-operator
   - additional_architectures:
     - arm64
+    disable_pod_scaler: true
     dockerfile_literal: |
       FROM src
       RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/local/bin/yq
       RUN dnf install -y jq skopeo git && dnf clean all
     from: src
     to: kueue-operator-src
-  - dockerfile_literal: |
+  - disable_pod_scaler: true
+    dockerfile_literal: |
       FROM src
       COPY oc /usr/bin/oc
       RUN ln -s /usr/bin/oc /usr/bin/kubectl
@@ -40,9 +43,11 @@ images:
         - destination_dir: .
           source_path: /usr/bin/oc
     to: src-with-oc-and-kubectl
-  - dockerfile_path: Dockerfile.ci.kueue
+  - disable_pod_scaler: true
+    dockerfile_path: Dockerfile.ci.kueue
     to: kueue-operand
   - context_dir: .
+    disable_pod_scaler: true
     dockerfile_path: Dockerfile.ci.must-gather
     to: kueue-must-gather
 operator:
