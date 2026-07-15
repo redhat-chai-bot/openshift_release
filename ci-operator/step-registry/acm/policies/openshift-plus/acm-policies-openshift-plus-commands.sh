@@ -17,6 +17,10 @@ cd policy-collection/deploy/
 
 # If QUAY_OPERATOR_CHANNEL is set, patch the Quay operator subscription to pin the channel
 if [[ -n "${QUAY_OPERATOR_CHANNEL:-}" ]]; then
+  if [[ ! "${QUAY_OPERATOR_CHANNEL}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "Invalid QUAY_OPERATOR_CHANNEL: ${QUAY_OPERATOR_CHANNEL}" >&2
+    exit 1
+  fi
   QUAY_POLICY_FILE="../policygenerator/policy-sets/stable/openshift-plus/input-quay/policy-install-quay.yaml"
   echo "Patching Quay operator subscription to use channel: ${QUAY_OPERATOR_CHANNEL}"
   sed -i "/^    name: quay-operator$/a\\    channel: ${QUAY_OPERATOR_CHANNEL}" "${QUAY_POLICY_FILE}"
