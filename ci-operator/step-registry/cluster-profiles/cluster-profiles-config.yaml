@@ -972,6 +972,7 @@ cluster_profiles:
     - openshift-tests-private
   - org: quay
     repos:
+    - mirror-registry
     - quay
     - quay-tests
   secret: cluster-secrets-aws-quay-qe
