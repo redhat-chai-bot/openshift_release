@@ -1,0 +1,11 @@
+{
+	"path": "quay/mirror-images-oc-mirror/quay-mirror-images-oc-mirror-ref.yaml",
+	"owners": {
+		"approvers": [
+			"quay-approvers"
+		],
+		"reviewers": [
+			"quay-approvers"
+		]
+	}
+}
