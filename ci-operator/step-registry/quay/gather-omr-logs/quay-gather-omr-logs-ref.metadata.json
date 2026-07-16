@@ -1,0 +1,11 @@
+{
+	"path": "quay/gather-omr-logs/quay-gather-omr-logs-ref.yaml",
+	"owners": {
+		"approvers": [
+			"quay-approvers"
+		],
+		"reviewers": [
+			"quay-approvers"
+		]
+	}
+}

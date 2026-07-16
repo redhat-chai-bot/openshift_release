@@ -1,0 +1,18 @@
+ref:
+  as: quay-gather-omr-logs
+  from: cli
+  best_effort: true
+  timeout: 600s
+  grace_period: 300s
+  commands: quay-gather-omr-logs-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    Gathers diagnostic logs from the Offline Mirror Registry (OMR) EC2 instance
+    provisioned by mirror-registry install. Collects podman container logs for
+    Quay, PostgreSQL, and Redis services, systemd journal entries, and system
+    metrics (memory, disk, listening ports). Requires SHARED_DIR to contain
+    OMR_HOST_NAME and terraform.tgz (with the quaybuilder SSH key) from the
+    provisioning step.
