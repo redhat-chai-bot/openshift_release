@@ -56,12 +56,41 @@ TAG_OPTION="--branch $(if [ "$E2E_VERSION" == "default" ]; then echo "$LATEST_TA
 git clone $REPO_URL $TAG_OPTION --depth 1
 pushd e2e-benchmarking/workloads/kube-burner-ocp-wrapper
 export WORKLOAD=node-density-cni
-EXTRA_FLAGS="--gc=$GC --gc-metrics=$GC_METRICS --pods-per-node=$PODS_PER_NODE --namespaced-iterations=$NAMESPACED_ITERATIONS --iterations-per-namespace=$ITERATIONS_PER_NAMESPACE --profile-type=${PROFILE_TYPE} --pprof=${PPROF} ${KB_FLAGS} ${ND_CNI_EXTRA_FLAGS}"
+EXTRA_FLAGS="--gc=$GC --gc-metrics=$GC_METRICS --pods-per-node=$PODS_PER_NODE --namespaced-iterations=$NAMESPACED_ITERATIONS --iterations-per-namespace=$ITERATIONS_PER_NAMESPACE --profile-type=${PROFILE_TYPE} --pprof=${PPROF} --pprof-interval=1m ${KB_FLAGS} ${ND_CNI_EXTRA_FLAGS}"
 
 export ES_SERVER="https://$ES_USERNAME:$ES_PASSWORD@$ES_HOST"
 
 export EXTRA_FLAGS UUID
 
+# Setup pprof secrets for kube-apiserver profiling
+oc create ns benchmark-operator || true
+set +x
+oc create serviceaccount kube-burner -n benchmark-operator || true
+oc create clusterrolebinding kube-burner-crb --clusterrole=cluster-admin --serviceaccount=benchmark-operator:kube-burner || true
+BEARER_TOKEN=$(oc create token -n benchmark-operator kube-burner --duration=6h || oc sa get-token kube-burner -n benchmark-operator)
+export BEARER_TOKEN
+set -x
+
+# Build kube-burner-ocp from fork with kube-apiserver pprof targets
+FORK_REPO="https://github.com/redhat-chai-bot/kube-burner_kube-burner-ocp.git"
+FORK_BRANCH="add-kube-apiserver-pprof-targets"
+echo "Building kube-burner-ocp from ${FORK_REPO} branch ${FORK_BRANCH}..."
+KB_OCP_SRC=$(mktemp -d)
+git clone --depth 1 --branch "${FORK_BRANCH}" "${FORK_REPO}" "${KB_OCP_SRC}"
+# Install Go (required for building kube-burner-ocp from source)
+GO_VERSION="1.25.9"
+curl -sL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+mkdir -p /tmp/goroot
+tar -C /tmp/goroot -xzf /tmp/go.tar.gz
+rm /tmp/go.tar.gz
+export GOROOT="/tmp/goroot/go"
+export PATH="${GOROOT}/bin:${PATH}"
+make -C "${KB_OCP_SRC}" build
+mkdir -p /tmp/kube-burner-ocp-bin
+cp "${KB_OCP_SRC}/bin/amd64/kube-burner-ocp" /tmp/kube-burner-ocp-bin/kube-burner-ocp
+rm -rf "${KB_OCP_SRC}"
+tar czf /tmp/kube-burner-ocp-custom.tar.gz -C /tmp/kube-burner-ocp-bin kube-burner-ocp
+export KUBE_BURNER_URL="file:///tmp/kube-burner-ocp-custom.tar.gz"
 set +o errexit
 ./run.sh
 RUN_EXIT_CODE=$?

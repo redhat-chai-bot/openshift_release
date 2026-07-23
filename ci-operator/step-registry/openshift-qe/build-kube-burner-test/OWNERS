@@ -1,0 +1,4 @@
+approvers:
+  - openshift-qe-perfscale
+reviewers:
+  - openshift-qe-perfscale

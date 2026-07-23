@@ -71,9 +71,9 @@ tests:
       VERSION: "5.0"
       ZONES_COUNT: "3"
     test:
+    - ref: openshift-qe-build-kube-burner-test
     - ref: openshift-qe-workers-scale
-    - chain: openshift-qe-control-plane
-    - chain: openshift-qe-orion-consolidated
+    - chain: openshift-qe-node-density-cni
     workflow: openshift-qe-installer-aws
 - as: control-plane-120nodes
   cron: 0 6 * * 0,2,4,6
