@@ -5491,7 +5491,6 @@ presubmits:
       ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
       ci-operator.openshift.io/variant: aws-5.0-nightly-x86
       ci.openshift.io/generator: prowgen
-      job-release: "5.0"
       pj-rehearse.openshift.io/can-be-rehearsed: "true"
     name: pull-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-compact-cp-3nodes
     rerun_command: /test aws-5.0-nightly-x86-compact-cp-3nodes
@@ -5576,7 +5575,6 @@ presubmits:
       ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
       ci-operator.openshift.io/variant: aws-5.0-nightly-x86
       ci.openshift.io/generator: prowgen
-      job-release: "5.0"
       pj-rehearse.openshift.io/can-be-rehearsed: "true"
     name: pull-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-conc-builds-3nodes
     rerun_command: /test aws-5.0-nightly-x86-conc-builds-3nodes
@@ -5661,7 +5659,6 @@ presubmits:
       ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
       ci-operator.openshift.io/variant: aws-5.0-nightly-x86
       ci.openshift.io/generator: prowgen
-      job-release: "5.0"
       pj-rehearse.openshift.io/can-be-rehearsed: "true"
     name: pull-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-3nodes
     rerun_command: /test aws-5.0-nightly-x86-control-plane-3nodes
@@ -5746,7 +5743,6 @@ presubmits:
       ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale
       ci-operator.openshift.io/variant: aws-5.0-nightly-x86
       ci.openshift.io/generator: prowgen
-      job-release: "5.0"
       pj-rehearse.openshift.io/can-be-rehearsed: "true"
     name: pull-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-fips-120nodes
     reporter_config:
@@ -6182,7 +6178,6 @@ presubmits:
       ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
       ci-operator.openshift.io/variant: aws-5.0-nightly-x86
       ci.openshift.io/generator: prowgen
-      job-release: "5.0"
       pj-rehearse.openshift.io/can-be-rehearsed: "true"
     name: pull-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-node-density-cni-3nodes
     rerun_command: /test aws-5.0-nightly-x86-node-density-cni-3nodes
@@ -6267,7 +6262,6 @@ presubmits:
       ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
       ci-operator.openshift.io/variant: aws-5.0-nightly-x86
       ci.openshift.io/generator: prowgen
-      job-release: "5.0"
       pj-rehearse.openshift.io/can-be-rehearsed: "true"
     name: pull-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-router-perf-24nodes
     rerun_command: /test aws-5.0-nightly-x86-router-perf-24nodes

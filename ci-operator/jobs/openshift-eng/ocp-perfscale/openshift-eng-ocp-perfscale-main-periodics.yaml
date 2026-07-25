@@ -2017,7 +2017,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-120nodes
   reporter_config:
@@ -2111,7 +2110,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-24nodes
   reporter_config:
@@ -2205,7 +2203,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-252nodes
   reporter_config:
@@ -2299,7 +2296,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-etcdencrypt-24nodes
   reporter_config:
@@ -2393,7 +2389,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-fips-24nodes
   reporter_config:
@@ -2487,7 +2482,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-fips-6nodes
   reporter_config:
@@ -2582,7 +2576,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-ipsec-120nodes
   reporter_config:
@@ -2677,7 +2670,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-control-plane-ipsec-252nodes
   reporter_config:
@@ -2771,7 +2763,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-cudn-churn-250-24nodes
   reporter_config:
@@ -2865,7 +2856,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-cudn-density-single-ns-250-24nodes
   reporter_config:
@@ -2959,7 +2949,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-cudn-density-single-ns-500-24nodes
   reporter_config:
@@ -3053,7 +3042,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-cudn-incremental-700-24nodes
   reporter_config:
@@ -3147,7 +3135,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-cudn-pod-churn-250-24nodes
   reporter_config:
@@ -3241,7 +3228,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-data-path-9nodes
   reporter_config:
@@ -3335,7 +3321,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-data-path-ipsec-9nodes
   reporter_config:
@@ -3678,7 +3663,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-netpol-24nodes
   reporter_config:
@@ -3772,7 +3756,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-payload-control-plane-6nodes
   reporter_config:
@@ -3866,7 +3849,6 @@ periodics:
     ci-operator.openshift.io/cloud-cluster-profile: aws-perfscale-qe
     ci-operator.openshift.io/variant: aws-5.0-nightly-x86
     ci.openshift.io/generator: prowgen
-    job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
   name: periodic-ci-openshift-eng-ocp-perfscale-main-aws-5.0-nightly-x86-udn-density-l3-24nodes
   reporter_config:
