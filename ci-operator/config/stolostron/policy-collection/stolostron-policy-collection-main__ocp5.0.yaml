@@ -126,6 +126,73 @@ tests:
     - ref: acm-tests-grc
     - ref: acm-tests-alc
     - ref: openshift-extended-test
+- as: interop-opp-aws-fips
+  capabilities:
+  - intranet
+  cron: 0 23 31 2 *
+  reporter_config:
+    channel: '#opp-discussion'
+    job_states_to_report:
+    - success
+    - failure
+    - error
+    report_template: '{{if eq .Status.State "success"}} :slack-green: Job *{{.Spec.Job}}*
+      ended with *{{.Status.State}}*. <{{.Status.URL}}|View logs> {{else}} :failed:
+      Job *{{.Spec.Job}}* ended with *{{.Status.State}}*. <{{.Status.URL}}|View logs>
+      {{end}}'
+  steps:
+    allow_best_effort_post_steps: true
+    cluster_profile: aws-cspi-qe
+    env:
+      BASE_DOMAIN: cspilp.interop.ccitredhat.com
+      COMPUTE_NODE_REPLICAS: "6"
+      COMPUTE_NODE_TYPE: m6a.2xlarge
+      CONTROL_PLANE_INSTANCE_TYPE: m6a.2xlarge
+      FIPS_ENABLED: "true"
+      FIREWATCH_CONFIG_FILE_PATH: https://raw.githubusercontent.com/CSPI-QE/cspi-utils/refs/heads/main/firewatch-base-configs/opp/lp-interop-aws.json
+      FIREWATCH_DEFAULT_JIRA_ADDITIONAL_LABELS: '["5.0-lp","opp-aws-lp","opp-lp","fips"]'
+      FIREWATCH_DEFAULT_JIRA_ASSIGNEE: mpruitt@redhat.com
+      FIREWATCH_DEFAULT_JIRA_EPIC: INTEROP-9181
+      FIREWATCH_DEFAULT_JIRA_PROJECT: LPINTEROP
+      FIREWATCH_FAIL_WITH_TEST_FAILURES: "true"
+      ODF_VERSION_MAJOR_MINOR: "5.0"
+      OPERATORS: |
+        [
+          {"name": "advanced-cluster-management", "source": "redhat-operators", "channel": "release-2.17", "install_namespace": "ocm", "target_namespaces": "ocm", "operator_group": "acm-operator-group"}
+        ]
+      TEST_IMPORTANCE: LEVEL0
+      TEST_SCENARIOS: Cluster_Observability
+      ZONES_COUNT: "3"
+    post:
+    - ref: acm-fetch-operator-versions
+    - ref: acm-must-gather
+    - ref: acm-inspector
+    - ref: acm-tests-clc-destroy
+    - ref: gather-aws-console
+    - chain: ipi-deprovision
+    - ref: firewatch-report-issues
+    pre:
+    - ref: ipi-conf
+    - ref: ipi-conf-telemetry
+    - ref: ipi-conf-aws-custom-az
+    - ref: ipi-conf-aws
+    - ref: ipi-install-monitoringpvc
+    - chain: ipi-install
+    test:
+    - ref: install-operators
+    - ref: acm-mch
+    - ref: acm-policies-openshift-plus-setup
+    - ref: acm-policies-openshift-plus
+    - chain: cucushift-installer-check-cluster-health
+    - ref: acm-tests-clc-create
+    - ref: acm-fetch-managed-clusters
+    - ref: acm-opp-app
+    - ref: interop-tests-ocs-tests
+    - ref: quay-tests-quay-interop-test
+    - ref: acm-tests-observability
+    - ref: acm-tests-grc
+    - ref: acm-tests-alc
+    - ref: openshift-extended-test
 - as: interop-opp-vsphere
   capabilities:
   - intranet
