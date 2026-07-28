@@ -24,7 +24,7 @@ for mabc_path in clusters/build-clusters/build-shared/supplemental-ci-images/*; 
 		done
 	done
 
-	oc -n ci apply --wait=true -f "$mabc_path"
+	yq e '.metadata.namespace = "ci"' "$mabc_path" | oc -n ci apply --wait=true -f -
 	echo "mabc/$mabc_name created"
 
 	oc -n ci wait --for=jsonpath='{.status.state}'=success --timeout=1h "mabc/$mabc_name"
