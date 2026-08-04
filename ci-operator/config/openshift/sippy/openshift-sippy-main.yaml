@@ -20,6 +20,9 @@ images:
     to: sippy-chat
   - dockerfile_path: .devcontainer/Dockerfile
     to: sippy-devcontainer
+  - dockerfile_path: Dockerfile.integration
+    from: src
+    to: sippy-integration
 promotion:
   to:
   - excluded_images:
@@ -39,9 +42,9 @@ tests:
     from: src
   skip_if_only_changed: ^docs/|\.md$|^(?:.*/)?(?:\.gitignore|OWNERS|PROJECT|LICENSE)$
 - as: integration
-  commands: HOME=/tmp make integration
+  commands: HOME=/tmp /nested-podman-entrypoint.sh make integration
   container:
-    from: src
+    from: sippy-integration
   skip_if_only_changed: ^docs/|\.md$|^(?:.*/)?(?:\.gitignore|OWNERS|PROJECT|LICENSE)$
 - as: build
   commands: HOME=/tmp make build

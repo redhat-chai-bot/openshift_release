@@ -146,6 +146,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -213,6 +214,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -303,6 +305,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -361,6 +364,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -428,6 +432,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -494,6 +499,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -570,6 +576,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -637,6 +644,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
@@ -703,6 +711,7 @@ presubmits:
       sparse_checkout_files:
       - .devcontainer/Dockerfile
       - Dockerfile
+      - Dockerfile.integration
       - chat/Dockerfile
     labels:
       ci.openshift.io/generator: prowgen
