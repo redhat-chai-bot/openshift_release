@@ -115,6 +115,7 @@ tests:
     - ref: install-operators
     - ref: acm-mch
     - ref: acm-policies-openshift-plus-setup
+    - ref: interop-opp-label-storage-nodes
     - ref: acm-policies-openshift-plus
     - chain: cucushift-installer-check-cluster-health
     - ref: acm-tests-clc-create
@@ -166,6 +167,7 @@ tests:
     - ref: install-operators
     - ref: acm-mch
     - ref: acm-policies-openshift-plus-setup
+    - ref: interop-opp-label-storage-nodes
     - ref: acm-policies-openshift-plus
     - chain: cucushift-installer-check-cluster-health
     - ref: interop-tests-ocs-tests

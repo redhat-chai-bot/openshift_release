@@ -1,0 +1,16 @@
+ref:
+  as: interop-opp-label-storage-nodes
+  from: cli
+  grace_period: 30s
+  commands: interop-opp-label-storage-nodes-commands.sh
+  timeout: 5m
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  documentation: |-
+    Labels existing worker nodes with cluster.ocs.openshift.io/openshift-storage
+    so that ODF can schedule its StorageCluster on them. ODF does not
+    automatically label nodes in self-managed deployments; without this
+    step the StorageCluster creation will fail because no eligible
+    nodes are found.

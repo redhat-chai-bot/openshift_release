@@ -1,0 +1,11 @@
+{
+	"path": "interop/opp/label-storage-nodes/interop-opp-label-storage-nodes-ref.yaml",
+	"owners": {
+		"approvers": [
+			"cspi-qe-ocp-lp"
+		],
+		"reviewers": [
+			"cspi-qe-ocp-lp"
+		]
+	}
+}
