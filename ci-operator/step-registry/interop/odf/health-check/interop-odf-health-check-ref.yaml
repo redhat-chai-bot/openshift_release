@@ -1,0 +1,24 @@
+ref:
+  as: interop-odf-health-check
+  from: cli
+  commands: interop-odf-health-check-commands.sh
+  timeout: 5m
+  grace_period: 30s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  env:
+  - name: ODF_NAMESPACE
+    default: "openshift-storage"
+    documentation: Namespace where ODF is installed.
+  - name: STORAGE_CLUSTER_NAME
+    default: "ocs-storagecluster"
+    documentation: Name of the StorageCluster CR to validate.
+  - name: TEST_PVC_TIMEOUT
+    default: "30"
+    documentation: Seconds to wait for the test PVC to bind.
+  documentation: |-
+    Lightweight ODF deployment health check. Validates StorageCluster
+    readiness, CephCluster health, required storage classes, and PVC
+    provisioning without running ocs-ci tests. Produces JUnit XML.
