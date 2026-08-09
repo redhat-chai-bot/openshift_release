@@ -637,7 +637,7 @@ tests:
   - intranet
   cron: 0 11 * * 1-4
   steps:
-    cluster_profile: libvirt-ppc64le-s2s
+    cluster_profile: power-s2s
     env:
       ARCH: ppc64le
       BRANCH: "5.0"
