@@ -3,6 +3,13 @@ set -o errexit
 set -o nounset
 set -o pipefail
 set -x
+
+# Source proxy configuration if available (for private/disconnected clusters)
+if [[ -f "${SHARED_DIR}/proxy-conf.sh" ]]; then
+    echo "Sourcing proxy configuration for private cluster access"
+    source "${SHARED_DIR}/proxy-conf.sh"
+fi
+
 cat /etc/os-release
 oc config view
 oc projects
@@ -25,12 +32,8 @@ fi
 #Support Libvirt Hypershift Cluster
 cluster_infra=$(oc get  infrastructure cluster -ojsonpath='{.status.platformStatus.type}')
 hypershift_pods=$(! oc -n hypershift get pods| grep operator >/dev/null ||oc -n hypershift get pods| grep operator |wc -l)
-if [[ $cluster_infra == "BareMetal" && $hypershift_pods -ge 1 ]];then	
+if [[ $cluster_infra == "BareMetal" && $hypershift_pods -ge 1 ]];then
     echo "Executing cluster-density-v2 in hypershift cluster"
-    if [[ -f $SHARED_DIR/proxy-conf.sh ]];then
-        echo "Set http proxy for hypershift cluster"
-        . $SHARED_DIR/proxy-conf.sh
-    fi
     echo "Configure KUBECONFIG for hosted cluster and execute kube-buner in it"
     export KUBECONFIG=$SHARED_DIR/nested_kubeconfig
 fi

@@ -3,6 +3,13 @@ set -o errexit
 set -o nounset
 set -o pipefail
 set -x
+
+# Source proxy configuration if available (for private/disconnected clusters)
+if [[ -f "${SHARED_DIR}/proxy-conf.sh" ]]; then
+    echo "Sourcing proxy configuration for private cluster access"
+    source "${SHARED_DIR}/proxy-conf.sh"
+fi
+
 cat /etc/os-release
 oc config view
 oc projects
