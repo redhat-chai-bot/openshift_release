@@ -11,6 +11,18 @@ mkdir -p "${HOME}"
 echo "Setting up ingress-node-firewall extension testing"
 echo "Extension image: ${EXTENSION_IMAGE}"
 
+# Install the TestExtensionAdmission CRD
+echo "Installing TestExtensionAdmission CRD..."
+if ! openshift-tests extension-admission install-crd 2> >(tee /tmp/install-crd.err >&2); then
+  if ! grep -qi "already exists" /tmp/install-crd.err; then
+    echo "ERROR: Failed to install TestExtensionAdmission CRD"
+    exit 1
+  fi
+  echo "TestExtensionAdmission CRD already exists"
+else
+  echo "TestExtensionAdmission CRD installed successfully"
+fi
+
 # Create the TestExtensionAdmission CR
 echo "Creating TestExtensionAdmission CR..."
 openshift-tests extension-admission create infw-extensions \
