@@ -172,4 +172,58 @@ spec:
         overwrite: true
         path: /etc/chrony.conf
 EOF
+
+elif [ ${ARCH} = "s390x" ]; then
+  SUBNET="$(leaseLookup "subnet")"
+  CHRONY_CONF="server 192.168.${SUBNET}.1 iburst
+driftfile /var/lib/chrony/drift
+makestep 1.0 3
+rtcsync
+logdir /var/log/chrony
+"
+  CHRONY_CONF_B64=$(echo "${CHRONY_CONF}" | base64 -w 0)
+
+  echo "Saving chrony worker yaml config for s390x..."
+  cat >> ${SHARED_DIR}/99-chrony-worker.yaml << EOF
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: worker
+  name: 99-chrony-worker
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+      - contents:
+          source: data:text/plain;charset=utf-8;base64,${CHRONY_CONF_B64}
+        filesystem: root
+        mode: 0644
+        overwrite: true
+        path: /etc/chrony.conf
+EOF
+
+  echo "Saving chrony master yaml config for s390x..."
+  cat >> ${SHARED_DIR}/99-chrony-master.yaml << EOF
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: master
+  name: 99-chrony-master
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+      - contents:
+          source: data:text/plain;charset=utf-8;base64,${CHRONY_CONF_B64}
+        filesystem: root
+        mode: 420
+        overwrite: true
+        path: /etc/chrony.conf
+EOF
 fi
