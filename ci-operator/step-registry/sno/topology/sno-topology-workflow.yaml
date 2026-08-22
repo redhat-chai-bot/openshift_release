@@ -1,0 +1,16 @@
+workflow:
+  as: sno-topology
+  steps:
+    allow_best_effort_post_steps: true
+    pre:
+    - chain: sno-topology-pre
+    test:
+    - chain: sno-topology-transition
+    - ref: sno-topology-verify
+    post:
+    - chain: gather-core-dump
+  documentation: |-
+    The SNO Topology Transition workflow transitions a Single Node OpenShift (SNO) cluster
+    to a Highly Available (HA) Compact topology by adding two additional control-plane nodes.
+    It validates pre-transition health, executes the transition, waits for completion, and
+    verifies the cluster is operating with HighlyAvailable control plane topology.

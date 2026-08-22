@@ -1,0 +1,14 @@
+ref:
+  as: sno-topology-transition-wait
+  from: cli
+  commands: sno-topology-transition-wait-commands.sh
+  timeout: 45m0s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    The SNO Topology Transition Wait step waits for the topology transition to complete.
+    It monitors the control plane topology status in the infrastructure resource until it
+    changes from SingleReplica to HighlyAvailable, waits for etcd to form a healthy
+    multi-member cluster, and ensures all cluster operators have reconciled.

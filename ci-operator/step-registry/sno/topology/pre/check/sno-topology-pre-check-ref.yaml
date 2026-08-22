@@ -1,0 +1,16 @@
+ref:
+  as: sno-topology-pre-check
+  from: cli
+  commands: sno-topology-pre-check-commands.sh
+  timeout: 15m0s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    The SNO Topology Pre Check step validates that the cluster is a healthy SNO cluster
+    ready for topology transition. It verifies:
+    - The cluster has exactly one control-plane node
+    - The control plane topology is SingleReplica
+    - All cluster operators are available and not degraded
+    - The etcd cluster is healthy with a single member

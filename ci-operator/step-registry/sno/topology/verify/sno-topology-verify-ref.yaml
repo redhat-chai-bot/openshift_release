@@ -1,0 +1,17 @@
+ref:
+  as: sno-topology-verify
+  from: cli
+  commands: sno-topology-verify-commands.sh
+  timeout: 15m0s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    The SNO Topology Verify step validates that the topology transition from SNO to HA Compact
+    completed successfully. It checks:
+    - The control plane topology is HighlyAvailable
+    - There are exactly 3 control-plane nodes
+    - All cluster operators are available and not degraded
+    - The etcd cluster has 3 healthy members
+    - The API server is serving requests correctly

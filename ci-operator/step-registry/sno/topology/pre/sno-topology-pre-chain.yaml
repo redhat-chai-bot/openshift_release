@@ -1,0 +1,7 @@
+chain:
+  as: sno-topology-pre
+  steps:
+  - ref: sno-topology-pre-check
+  documentation: |-
+    The SNO Topology Pre chain validates that the cluster is a healthy Single Node OpenShift
+    cluster and meets all prerequisites for transitioning to HA Compact topology.

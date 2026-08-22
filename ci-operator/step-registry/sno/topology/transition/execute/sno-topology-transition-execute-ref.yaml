@@ -1,0 +1,18 @@
+ref:
+  as: sno-topology-transition-execute
+  from: cli
+  commands: sno-topology-transition-execute-commands.sh
+  timeout: 45m0s
+  env:
+  - name: ADDITIONAL_CONTROL_PLANE_COUNT
+    default: "2"
+    documentation: The number of additional control-plane nodes to add for the HA Compact transition.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  documentation: |-
+    The SNO Topology Transition Execute step initiates the transition from SNO to HA Compact
+    topology by scaling the control plane MachineSet to add additional control-plane nodes.
+    It creates or scales the control-plane MachineSet to reach the target of 3 control-plane
+    nodes required for an HA Compact cluster.
