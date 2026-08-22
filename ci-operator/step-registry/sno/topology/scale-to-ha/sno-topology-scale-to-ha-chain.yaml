@@ -1,0 +1,13 @@
+chain:
+  as: sno-topology-scale-to-ha
+  steps:
+  - ref: sno-topology-conf
+  - ref: sno-topology-add-control-plane-nodes
+  - ref: sno-topology-wait-etcd-scaling
+  - ref: sno-topology-transition
+  documentation: |-
+    The sno-topology-scale-to-ha chain orchestrates the full transition from a Single
+    Node OpenShift (SNO) cluster to an HA Compact (3 control-plane node) topology.
+    It captures the initial cluster state, adds two additional control-plane nodes,
+    waits for etcd to scale to a 3-member quorum, and then waits for the control
+    plane topology to transition from SingleReplica to HighlyAvailable.

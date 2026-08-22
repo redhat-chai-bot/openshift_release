@@ -1,0 +1,24 @@
+ref:
+  as: sno-topology-e2e
+  from: tests
+  grace_period: 10m
+  commands: sno-topology-e2e-commands.sh
+  timeout: 2h0m0s
+  env:
+  - name: TEST_SUITE
+    default: openshift/conformance/parallel
+    documentation: The test suite to run after the topology transition.
+  - name: TEST_SKIPS
+    default: ""
+    documentation: Regular expression of tests to skip.
+  resources:
+    requests:
+      cpu: "3"
+      memory: 600Mi
+    limits:
+      memory: 8Gi
+  documentation: |-
+    The sno-topology-e2e step runs the OpenShift end-to-end conformance test suite
+    against the cluster after it has been transitioned from SNO to HA Compact topology.
+    This validates that the cluster functions correctly as a standard HA cluster after
+    the topology transition.

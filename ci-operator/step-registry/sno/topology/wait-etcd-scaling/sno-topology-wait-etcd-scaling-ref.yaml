@@ -1,0 +1,14 @@
+ref:
+  as: sno-topology-wait-etcd-scaling
+  from: cli
+  commands: sno-topology-wait-etcd-scaling-commands.sh
+  timeout: 30m0s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    The sno-topology-wait-etcd-scaling step waits for the etcd cluster to scale
+    from a single member to a multi-member quorum after new control-plane nodes
+    have been added. It monitors the etcd operator status and member count until
+    all members are available and the etcd cluster is healthy.

@@ -1,0 +1,13 @@
+ref:
+  as: sno-topology-conf
+  from: cli
+  commands: sno-topology-conf-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    The sno-topology-conf step captures the initial SNO cluster topology state and
+    validates prerequisites for the topology transition. It records the current
+    control plane topology (SingleReplica), the original SNO node name, and the
+    infrastructure platform, saving them to SHARED_DIR for use by subsequent steps.

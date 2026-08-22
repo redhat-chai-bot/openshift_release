@@ -1,0 +1,15 @@
+ref:
+  as: sno-topology-transition
+  from: cli
+  commands: sno-topology-transition-commands.sh
+  timeout: 30m0s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    The sno-topology-transition step waits for the control plane topology to
+    change from SingleReplica to HighlyAvailable after the additional control-plane
+    nodes have joined the cluster and etcd has scaled. It monitors the infrastructure
+    resource status and waits for all cluster operators to reconcile with the new
+    HA topology.

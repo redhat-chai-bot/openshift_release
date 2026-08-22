@@ -1,0 +1,15 @@
+workflow:
+  as: sno-topology-transition-e2e
+  steps:
+    allow_best_effort_post_steps: true
+    pre:
+    - chain: sno-topology-scale-to-ha
+    test:
+    - ref: sno-topology-e2e
+    post:
+    - chain: gather-core-dump
+  documentation: |-
+    The sno-topology-transition-e2e workflow executes the full SNO to HA Compact
+    topology transition pipeline and then validates the resulting cluster by running
+    the OpenShift e2e conformance test suite. It expects a pre-existing SNO cluster
+    and orchestrates the transition to a 3-node HA Compact topology before testing.

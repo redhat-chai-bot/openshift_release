@@ -1,0 +1,20 @@
+ref:
+  as: sno-topology-add-control-plane-nodes
+  from: cli
+  grace_period: 10m
+  commands: sno-topology-add-control-plane-nodes-commands.sh
+  timeout: 45m0s
+  env:
+  - name: ADDITIONAL_CONTROL_PLANE_COUNT
+    default: "2"
+    documentation: The number of additional control-plane nodes to add for the HA Compact transition.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  documentation: |-
+    The sno-topology-add-control-plane-nodes step adds additional control-plane
+    nodes to a Single Node OpenShift cluster as a day-2 operation. It scales the
+    control-plane MachineSet to reach the target of 3 control-plane nodes required
+    for an HA Compact cluster, waits for the machines to be provisioned, and
+    confirms all new nodes reach the Ready state.
