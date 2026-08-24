@@ -88,18 +88,6 @@ spec:
         app: nfs-provisioner
     spec:
       serviceAccount: nfs-provisioner
-      initContainers:
-      - name: init
-        image: ${NFS_PROVISIONER_IMAGE}
-        command:
-        - sh
-        - "-c"
-        - mkdir -p /srv/nfs;chcon -Rt svirt_sandbox_file_t /srv/nfs;chmod 777 /srv/nfs
-        volumeMounts:
-        - mountPath: "/srv"
-          name: local
-        securityContext:
-          privileged: true
       containers:
         - name: nfs-provisioner
           image: ${NFS_PROVISIONER_IMAGE}
@@ -158,16 +146,12 @@ spec:
               mountPath: /export
       volumes:
         - name: export-volume
-          hostPath:
-            path: /srv/nfs
-        - name: local
-          hostPath:
-            path: "/srv"
+          emptyDir: {}
 EOF
 
 echo "Creating SecurityContextConstraints"
 oc apply -f - <<EOF
-allowHostDirVolumePlugin: true
+allowHostDirVolumePlugin: false
 allowHostIPC: false
 allowHostNetwork: false
 allowHostPID: false
@@ -200,7 +184,6 @@ volumes:
 - configMap
 - downwardAPI
 - emptyDir
-- hostPath
 - persistentVolumeClaim
 - secret
 EOF
@@ -290,6 +273,45 @@ while true; do
 done
 
 echo "INFO: Step2: Deploy nfs-provisioner successfully."
+
+echo "INFO: Step2b: Verify NFS provisioner is functional (create test PVC)..."
+oc apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-test-pvc
+  namespace: nfs-provisioner
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 1Mi
+EOF
+
+# Wait for the test PVC to be Bound — proves the provisioner is actually working
+i=0
+period=5
+while true; do
+  PVC_STATUS="$(oc -n nfs-provisioner get pvc nfs-test-pvc -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  if [ "${PVC_STATUS}" == "Bound" ]; then
+    echo "INFO: NFS provisioner is functional — test PVC bound successfully"
+    break
+  fi
+  sleep $period
+  i=$((i + period))
+  if [ "$i" -ge 120 ]; then
+    echo "ERROR: NFS provisioner not functional — test PVC did not bind within 120s"
+    oc -n nfs-provisioner describe pvc nfs-test-pvc
+    oc -n nfs-provisioner get events --sort-by='.lastTimestamp'
+    exit 1
+  fi
+  echo "Waiting for test PVC to bind (attempt $((i/period))/24, status: ${PVC_STATUS})..."
+done
+
+# Clean up the test PVC
+oc -n nfs-provisioner delete pvc nfs-test-pvc --wait=false
 
 echo "INFO: Step3: Create storage class nfs."
 oc apply -f - <<EOF
