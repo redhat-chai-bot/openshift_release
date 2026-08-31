@@ -293,15 +293,31 @@ fi
 ################################################################################
 : "====== Pre-flight Check: QuayIntegration ======"
 
+# Distinguish between "CRD not installed" (skip) and "CRD exists but CR
+# missing" (fail).  On OCP versions where the Quay Bridge Operator is not
+# available in the catalog the QuayIntegration CRD will be absent entirely;
+# that is an environment limitation, not a test failure.
+if ! oc api-resources --api-group=quay.redhat.com 2>/dev/null | grep -qi quayintegration; then
+    : "QuayIntegration CRD is not installed on this cluster."
+    : "Quay Bridge Operator is not available - skipping OPP app tests."
+
+    for test in "${allTestCasesArr[@]}"; do
+        testStatus["${test}"]="skipped"
+        testFailureMsg["${test}"]="QuayIntegration CRD not available - Quay Bridge Operator not installed"
+    done
+
+    exit 0
+fi
+
 if ! oc get quayintegration quay >/dev/null; then
-    : "ERROR: QuayIntegration 'quay' not found!"
+    : "ERROR: QuayIntegration CRD exists but CR 'quay' not found!"
     : "OPP bundle components are not properly configured."
     : "Cannot proceed with testing - marking all test cases as failed."
 
     # Mark all tests as failed with specific message
     for test in "${allTestCasesArr[@]}"; do
         testStatus["${test}"]="failed"
-        testFailureMsg["${test}"]="QuayIntegration not found - OPP bundle not configured"
+        testFailureMsg["${test}"]="QuayIntegration CR 'quay' not found - OPP bundle not configured"
     done
 
     # Exit immediately (EXIT trap will generate JUnit XML)
