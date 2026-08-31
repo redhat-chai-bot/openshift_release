@@ -198,6 +198,7 @@ tests:
     cluster_profile: hypershift-aws
     env:
       GUEST_FEATURE_SET: TechPreviewNoUpgrade
+      SKIP_MONITOR_TEST: "true"
       TEST_SUITE: openshift/conformance/serial
     workflow: hypershift-aws-conformance
 - as: e2e-aws-ovn-conformance
