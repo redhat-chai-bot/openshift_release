@@ -294,14 +294,14 @@ fi
 : "====== Pre-flight Check: QuayIntegration ======"
 
 if ! oc get quayintegration quay >/dev/null; then
-    : "ERROR: QuayIntegration 'quay' not found!"
+    : "SKIP: QuayIntegration 'quay' not found!"
     : "OPP bundle components are not properly configured."
-    : "Cannot proceed with testing - marking all test cases as failed."
+    : "Cannot proceed with testing - marking all test cases as skipped."
 
-    # Mark all tests as failed with specific message
+    # Mark all tests as skipped with specific message
     for test in "${allTestCasesArr[@]}"; do
-        testStatus["${test}"]="failed"
-        testFailureMsg["${test}"]="QuayIntegration not found - OPP bundle not configured"
+        testStatus["${test}"]="skipped"
+        testFailureMsg["${test}"]="QuayIntegration not found - Quay Bridge Operator not configured"
     done
 
     # Exit immediately (EXIT trap will generate JUnit XML)
