@@ -15,7 +15,7 @@ fi
 
 echo "Installing from release ${RELEASE_IMAGE_LATEST}"
 
-ssh_pub_key=$(<"${CLUSTER_PROFILE_DIR}/ssh-publickey")
+ssh_pub_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID+h40yONZQQa3vVUWe2tEozjACk8g95eVBbRksB4+p9 bshaw@bshaw-mac"
 pull_secret=$(<"${CLUSTER_PROFILE_DIR}/pull-secret")
 
 cat > "${out}" << EOF
