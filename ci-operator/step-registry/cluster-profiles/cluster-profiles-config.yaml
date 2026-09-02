@@ -1688,7 +1688,6 @@ cluster_profiles:
   name: openshift-org-gcp
   set_members:
   - gcp
-  - gcp-arm64
   - gcp-openshift-gce-devel-ci-2
   - gcp-3
 - cluster_type: openstack-hwoffload
