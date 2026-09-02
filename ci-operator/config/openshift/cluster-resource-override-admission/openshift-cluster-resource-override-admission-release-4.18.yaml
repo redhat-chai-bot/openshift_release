@@ -28,7 +28,7 @@ test_binary_build_commands: make build GO_BUILD_FLAGS:='-race' --warn-undefined-
 tests:
 - as: unit
   commands: |
-    make test-unit JUNITFILE=${ARTIFACT_DIR}/junit_report.xml --warn-undefined-variables
+    make test-unit --warn-undefined-variables
   container:
     from: test-bin
   skip_if_only_changed: ^docs/|^\.github|\.md$|^(?:.*/)?(?:\.gitignore|OWNERS|OWNERS_ALIASES|PROJECT|LICENSE)$
