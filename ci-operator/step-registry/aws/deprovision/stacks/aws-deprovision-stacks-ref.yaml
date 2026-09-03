@@ -14,5 +14,25 @@ ref:
   - name: REGION
     default: ""
     documentation: Use a specific AWS region, overriding the LEASED_RESOURCE environment variable in the cluster_profile.
+  - name: DEPROVISION_STACKS_DIAG
+    default: ""
+    documentation: |-
+      Set to "true" to enable CloudFormation diagnostic logging on stack
+      deletion failures. Captures stack summary, resources, and events
+      (with logical/physical IDs, type, status, reason) immediately after
+      a failed delete waiter, after each cleanup retry, and at final
+      failure. Output goes to stdout/stderr. Temporary debug aid.
+  - name: DEPROVISION_STACKS_PAUSE_SECONDS
+    default: "0"
+    documentation: |-
+      Seconds to pause before VPC cleanup on a failed stack delete,
+      allowing time for manual inspection during rehearsal debugging.
+      Set to 0 (default) to skip the pause.
+  - name: DEPROVISION_STACKS_LOG_IDENTITY
+    default: ""
+    documentation: |-
+      Set to "true" to log the non-secret STS caller identity (account
+      ID and ARN) before stack deletion begins. Useful for verifying
+      which AWS credentials are active. Does not print secrets.
   documentation: |-
     Delete AWS CloudFormation stacks, e.g, apps dns stack, bastion host stack, vpc stack.

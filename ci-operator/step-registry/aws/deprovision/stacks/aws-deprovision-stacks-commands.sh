@@ -124,6 +124,37 @@ function check_stack_deleted()
     return 1
 }
 
+# Diagnostic helper — best-effort CloudFormation state capture.
+# Gated on DEPROVISION_STACKS_DIAG=true; failures here must never
+# alter the script exit code.
+function log_stack_diagnostics()
+{
+    local stack_name=$1
+    local label=$2
+
+    echo "=== [DIAG ${label}] Stack diagnostics for ${stack_name} ==="
+
+    echo "--- Stack summary ---"
+    aws --region "$REGION" cloudformation describe-stacks \
+        --stack-name "${stack_name}" \
+        --query 'Stacks[0].{StackName:StackName,Status:StackStatus,Reason:StackStatusReason,CreatedTime:CreationTime}' \
+        --output table 2>/dev/null || echo "(stack not found or already deleted)"
+
+    echo "--- Stack resources ---"
+    aws --region "$REGION" cloudformation describe-stack-resources \
+        --stack-name "${stack_name}" \
+        --query 'StackResources[].{LogicalId:LogicalResourceId,PhysicalId:PhysicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason}' \
+        --output table 2>/dev/null || echo "(no resources)"
+
+    echo "--- Stack events (last 20) ---"
+    aws --region "$REGION" cloudformation describe-stack-events \
+        --stack-name "${stack_name}" \
+        --query 'StackEvents[:20].{Time:Timestamp,LogicalId:LogicalResourceId,PhysicalId:PhysicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason}' \
+        --output table 2>/dev/null || echo "(no events)"
+
+    echo "=== [END DIAG ${label}] ==="
+}
+
 function delete_stacks()
 {
     local stack_list=$1
@@ -140,10 +171,26 @@ function delete_stacks()
             continue
         fi
 
+        # Diagnostics after the initial delete waiter failed
+        if [[ "${DEPROVISION_STACKS_DIAG:-}" == "true" ]]; then
+            log_stack_diagnostics "${stack_name}" "after-initial-delete-failed" || true
+        fi
+
+        # Optional pause for rehearsal inspection before cleanup begins
+        if [[ "${DEPROVISION_STACKS_PAUSE_SECONDS:-0}" -gt 0 ]]; then
+            echo "DIAG: Pausing ${DEPROVISION_STACKS_PAUSE_SECONDS}s before cleanup for manual inspection ..."
+            sleep "${DEPROVISION_STACKS_PAUSE_SECONDS}"
+        fi
+
         local attempt
         for attempt in 1 2; do
             echo "Stack ${stack_name} deletion failed, cleaning up VPC resources (attempt ${attempt}/2) ..."
             cleanup_failed_stack "${stack_name}"
+
+            # Diagnostics after cleanup, before retry
+            if [[ "${DEPROVISION_STACKS_DIAG:-}" == "true" ]]; then
+                log_stack_diagnostics "${stack_name}" "after-cleanup-attempt-${attempt}" || true
+            fi
 
             echo "Retrying stack deletion for ${stack_name} ..."
             aws --region "$REGION" cloudformation delete-stack --stack-name "${stack_name}" &
@@ -158,6 +205,10 @@ function delete_stacks()
         done
 
         if ! check_stack_deleted "${stack_name}"; then
+            # Diagnostics at final failure
+            if [[ "${DEPROVISION_STACKS_DIAG:-}" == "true" ]]; then
+                log_stack_diagnostics "${stack_name}" "final-failure" || true
+            fi
             echo "ERROR: Failed to delete stack ${stack_name} after 2 cleanup attempts"
             rc=1
         fi
@@ -166,6 +217,12 @@ function delete_stacks()
 }
 
 echo "Deleting AWS CloudFormation stacks"
+
+# Optional: log non-secret STS caller identity for credential verification
+if [[ "${DEPROVISION_STACKS_LOG_IDENTITY:-}" == "true" ]]; then
+    echo "--- STS Caller Identity ---"
+    aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output table 2>/dev/null || echo "(unable to retrieve caller identity)"
+fi
 
 stack_list="${SHARED_DIR}/to_be_removed_cf_stack_list"
 if [ -e "${stack_list}" ]; then
