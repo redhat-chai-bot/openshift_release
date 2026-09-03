@@ -106,6 +106,9 @@ tests:
           target: argocd/config/regional-cluster/hyperfleet/values.yaml
           override:
             hyperfleet:
+              source:
+                repoURL: https://github.com/openshift-online/rosa-hyperfleet-api.git
+                targetRevision: IMAGE_TAG
               helmValues:
                 image:
                   repository: IMAGE_REPO
