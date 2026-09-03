@@ -107,7 +107,6 @@ tests:
           override:
             hyperfleet:
               source:
-                repoURL: https://github.com/openshift-online/rosa-hyperfleet-api.git
                 targetRevision: IMAGE_TAG
               helmValues:
                 image:
