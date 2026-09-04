@@ -70,12 +70,6 @@ tests:
         export CAPTURE_SCREENSHOTS=true
         export CAPTURE_RECORDINGS=true
 
-        echo "=== Debug: Cluster Info ==="
-        echo "=== TektonConfig Status ==="
-        oc get tektonconfig || echo "TektonConfig not found — Pipelines may not be installed"
-        echo "=== OpenShift Pipelines Operator ==="
-        oc get csv -A 2>/dev/null | grep -i pipelines || echo "Pipelines operator NOT installed"
-
         pytest -m sanity -v --tb=short 2>&1 | tee "${ARTIFACTS_DIR}/pytest-output.log"
       from: playwright-runner
       resources:
