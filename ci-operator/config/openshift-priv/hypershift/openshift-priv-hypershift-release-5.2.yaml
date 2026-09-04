@@ -117,6 +117,11 @@ releases:
       product: ocp
       stream: nightly
       version: "5.2"
+  n1minor:
+    candidate:
+      product: ocp
+      stream: ci
+      version: "5.1"
 resources:
   '*':
     limits:
@@ -271,6 +276,8 @@ tests:
   pipeline_skip_if_only_changed: (^(\.tekton|\.github|\.claude|docs|examples|enhancements|contrib|hypershift-ci-python|\.cursor|test/envtest)/)|(\.md$)|((^|/)OWNERS$)|(/overrides\.yaml$)|(^renovate\.json$)|(/\.testcoverage\.yml$)|(^\.gitlint$)|(^\.gitignore$)|(^\.coderabbit\.yaml$)|(^\.dockerignore$)|(^codecov\.yml$)|(^(?:[^t/][^/]*|t|t[^e/][^/]*|te|te[^s/][^/]*|tes|tes[^t/][^/]*|test[^/]+)/.*_test\.go$)
   steps:
     cluster_profile: hypershift-aws
+    dependencies:
+      OCP_IMAGE_N1: release:n1minor
     env:
       NODEPOOL_N1_VERSION: "5.0"
       TECH_PREVIEW_NO_UPGRADE: "true"
