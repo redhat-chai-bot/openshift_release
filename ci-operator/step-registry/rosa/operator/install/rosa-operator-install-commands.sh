@@ -192,10 +192,15 @@ else
 fi
 
 # Save operator CR instances before removing the ClusterPackage.
-# On managed clusters, SSS deploys CRs (RouteMonitors, etc.) that we need
-# to preserve. Deleting the ClusterPackage may cascade-delete CRDs and CRs.
-# We back up all CR instances for each operator CRD, then restore after install.
+# On managed clusters, Hive deploys CRs (RouteMonitors, etc.) via SyncSets
+# that we need to preserve. Deleting the ClusterPackage may cascade-delete
+# CRDs and their CRs. We back up only CRs carrying the authoritative
+# hive.openshift.io/managed=true label, replacing the prior heuristic that
+# skipped test-* names (which was brittle and could miss legitimate CRs or
+# include stale leftovers from previous e2e runs).
 CR_BACKUP_DIR="/tmp/operator-cr-backup"
+MANAGED_CR_LABEL="hive.openshift.io/managed=true"
+BACKUP_EMPTY=true
 mkdir -p "${CR_BACKUP_DIR}"
 if [[ -n "${OPERATOR_CRDS:-}" ]]; then
     IFS=',' read -ra CRD_LIST <<< "${OPERATOR_CRDS}"
@@ -204,25 +209,36 @@ if [[ -n "${OPERATOR_CRDS:-}" ]]; then
         if oc get crd "${crd}" &>/dev/null; then
             RESOURCE=$(oc get crd "${crd}" -o jsonpath='{.spec.names.plural}')
             GROUP=$(oc get crd "${crd}" -o jsonpath='{.spec.group}')
-            log "Backing up ${RESOURCE}.${GROUP} instances"
-            # Back up only non-test CRs. Test CRs (names starting with "test-")
-            # are created by e2e tests and should not persist across CI runs.
-            ALL_ITEMS=$(oc get "${RESOURCE}.${GROUP}" -A --no-headers -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null || true)
-            : > "${CR_BACKUP_DIR}/${crd}.yaml"
+            log "Backing up ${RESOURCE}.${GROUP} instances with label ${MANAGED_CR_LABEL}"
+            MANAGED_ITEMS=$(oc get "${RESOURCE}.${GROUP}" -A -l "${MANAGED_CR_LABEL}" \
+                --no-headers -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null || true)
+            ITEMS_TMP=$(mktemp)
+            CR_COUNT=0
             while IFS= read -r line; do
                 [[ -z "${line}" ]] && continue
                 cr_ns=$(echo "${line}" | awk '{print $1}')
                 cr_name=$(echo "${line}" | awk '{print $2}')
-                if [[ "${cr_name}" == test-* ]]; then
-                    log "  Skipping test CR ${cr_name}"
-                    continue
-                fi
-                if oc get "${RESOURCE}.${GROUP}" "${cr_name}" -n "${cr_ns}" -o yaml >> "${CR_BACKUP_DIR}/${crd}.yaml" 2>/dev/null; then
-                    echo "---" >> "${CR_BACKUP_DIR}/${crd}.yaml"
+                # Export as JSON and strip cluster-specific metadata so the CR
+                # re-applies cleanly onto freshly recreated CRDs.
+                if oc get "${RESOURCE}.${GROUP}" "${cr_name}" -n "${cr_ns}" -o json 2>/dev/null \
+                    | jq 'del(.metadata.resourceVersion, .metadata.uid, .metadata.ownerReferences, .metadata.managedFields, .metadata.creationTimestamp)' \
+                    >> "${ITEMS_TMP}" 2>/dev/null; then
+                    log "  Backed up managed CR ${cr_name} (ns: ${cr_ns})"
+                    CR_COUNT=$((CR_COUNT + 1))
                 else
                     log "  WARNING: failed to back up ${cr_name} in ${cr_ns} (may have been deleted)"
                 fi
-            done <<< "${ALL_ITEMS}"
+            done <<< "${MANAGED_ITEMS}"
+            if [[ ${CR_COUNT} -gt 0 ]]; then
+                # Wrap stripped JSON objects in a Kubernetes List for clean oc apply
+                jq -s '{apiVersion: "v1", kind: "List", items: .}' "${ITEMS_TMP}" > "${CR_BACKUP_DIR}/${crd}.yaml"
+                BACKUP_EMPTY=false
+                log "  Backed up ${CR_COUNT} managed CR(s) for ${crd}"
+            else
+                : > "${CR_BACKUP_DIR}/${crd}.yaml"
+                log "  No managed CRs found for ${crd}"
+            fi
+            rm -f "${ITEMS_TMP}"
         fi
     done
 fi
@@ -461,15 +477,123 @@ if [[ -n "${OPERATOR_CRDS:-}" ]]; then
     done
 fi
 
-# Restore backed-up CR instances that were deployed by SSS/MCC
+# Restore backed-up CR instances that were deployed via Hive SyncSets
 for backup in "${CR_BACKUP_DIR}"/*.yaml; do
     [[ -f "${backup}" ]] || continue
     if [[ -s "${backup}" ]]; then
         crd_name=$(basename "${backup}" .yaml)
         log "Restoring CR instances for ${crd_name}"
-        oc apply -f "${backup}" 2>/dev/null || true
+        if ! oc apply -f "${backup}" 2>/dev/null; then
+            log "WARNING: some CRs for ${crd_name} failed to restore (may not yet be served)"
+        fi
     fi
 done
+
+# Gate: verify expected managed CRs exist before handing off to e2e step.
+# EXPECTED_MANAGED_CRS is a comma-separated list in the format:
+#   <plural>.<group>/<name>[/<namespace>]
+# For cluster-scoped CRs, omit the namespace.
+if [[ -n "${EXPECTED_MANAGED_CRS:-}" ]]; then
+    log "Verifying expected managed CRs exist..."
+    IFS=',' read -ra EXPECTED_LIST <<< "${EXPECTED_MANAGED_CRS}"
+    MISSING_CRS=()
+
+    for expected_cr in "${EXPECTED_LIST[@]}"; do
+        expected_cr=$(echo "${expected_cr}" | xargs)
+        # Parse format: <plural>.<group>/<name>[/<namespace>]
+        RESOURCE_PART="${expected_cr%%/*}"
+        REMAINDER="${expected_cr#*/}"
+        CR_NAME="${REMAINDER%%/*}"
+        CR_NS=""
+        if [[ "${REMAINDER}" == *"/"* ]]; then
+            CR_NS="${REMAINDER#*/}"
+        fi
+
+        log "  Waiting for managed CR: ${expected_cr}"
+        CR_FOUND=false
+        for i in $(seq 1 12); do
+            if [[ -n "${CR_NS}" ]]; then
+                if oc get "${RESOURCE_PART}" "${CR_NAME}" -n "${CR_NS}" &>/dev/null; then
+                    CR_FOUND=true
+                    break
+                fi
+            else
+                if oc get "${RESOURCE_PART}" "${CR_NAME}" &>/dev/null; then
+                    CR_FOUND=true
+                    break
+                fi
+            fi
+            sleep 5
+        done
+
+        if ${CR_FOUND}; then
+            log "    [OK] ${expected_cr} exists"
+        else
+            log "    [MISSING] ${expected_cr} not found after 60s"
+            MISSING_CRS+=("${expected_cr}")
+        fi
+    done
+
+    # Fallback: if the backup was empty (prior run wiped managed CRs before
+    # Hive resynced) or expected CRs are still missing after restore, wait
+    # for Hive's periodic resync to recreate them.
+    if [[ ${#MISSING_CRS[@]} -gt 0 ]] || ${BACKUP_EMPTY}; then
+        if ${BACKUP_EMPTY}; then
+            log "WARNING: CR backup was empty — a prior CI run may have wiped managed CRs before Hive resynced (cascading contamination)"
+        fi
+        if [[ ${#MISSING_CRS[@]} -gt 0 ]]; then
+            log "WARNING: ${#MISSING_CRS[@]} expected managed CR(s) missing after restore: ${MISSING_CRS[*]}"
+        fi
+        log "Waiting up to 5 minutes for Hive periodic resync to recreate managed CRs..."
+
+        RESYNC_DEADLINE=$((SECONDS + 300))
+        while [[ ${SECONDS} -lt ${RESYNC_DEADLINE} && ${#MISSING_CRS[@]} -gt 0 ]]; do
+            sleep 15
+            STILL_MISSING=()
+            for expected_cr in "${MISSING_CRS[@]}"; do
+                RESOURCE_PART="${expected_cr%%/*}"
+                REMAINDER="${expected_cr#*/}"
+                CR_NAME="${REMAINDER%%/*}"
+                CR_NS=""
+                if [[ "${REMAINDER}" == *"/"* ]]; then
+                    CR_NS="${REMAINDER#*/}"
+                fi
+
+                if [[ -n "${CR_NS}" ]]; then
+                    if oc get "${RESOURCE_PART}" "${CR_NAME}" -n "${CR_NS}" &>/dev/null; then
+                        log "    [OK] ${expected_cr} appeared (Hive resync)"
+                    else
+                        STILL_MISSING+=("${expected_cr}")
+                    fi
+                else
+                    if oc get "${RESOURCE_PART}" "${CR_NAME}" &>/dev/null; then
+                        log "    [OK] ${expected_cr} appeared (Hive resync)"
+                    else
+                        STILL_MISSING+=("${expected_cr}")
+                    fi
+                fi
+            done
+            MISSING_CRS=("${STILL_MISSING[@]}")
+            if [[ ${#MISSING_CRS[@]} -gt 0 ]]; then
+                REMAINING=$(( RESYNC_DEADLINE - SECONDS ))
+                log "  Still waiting for ${#MISSING_CRS[@]} CR(s), ~${REMAINING}s remaining..."
+            fi
+        done
+
+        if [[ ${#MISSING_CRS[@]} -gt 0 ]]; then
+            log "ERROR: Expected managed CRs still missing after 5-minute Hive resync wait:"
+            for cr in "${MISSING_CRS[@]}"; do
+                log "  - ${cr}"
+            done
+            log "ERROR: Cannot proceed to e2e step without required managed CRs"
+            log "ERROR: This may indicate Hive SyncSets are not configured for this cluster or the CRDs were not re-established"
+            exit 1
+        fi
+        log "All expected managed CRs are present after Hive resync"
+    else
+        log "All expected managed CRs verified"
+    fi
+fi
 
 # Wait for additional operator-managed deployments to become ready.
 # Some operators create secondary deployments (e.g., ocm-agent-operator

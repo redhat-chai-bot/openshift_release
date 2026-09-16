@@ -38,6 +38,16 @@ ref:
   - name: PKO_CONFIG_NAMESPACE
     default: ""
     documentation: Namespace to pass in the ClusterPackage config. Required for operators whose PKO manifest uses config.namespace (e.g., splunk-forwarder-operator).
+  - name: EXPECTED_MANAGED_CRS
+    default: ""
+    documentation: |-
+      Comma-separated list of Hive-managed CRs that must exist before handing
+      off to the e2e test step. Format: <plural>.<group>/<name>[/<namespace>].
+      For cluster-scoped CRs, omit the namespace. The install step will poll
+      for each CR (up to 60s), and if any are missing after restore it will
+      wait up to 5 minutes for Hive periodic resync. Failure to find all
+      expected CRs is a hard error. Example:
+      routemonitors.monitoring.openshift.io/console/openshift-route-monitor-operator,clusterurlmonitors.monitoring.openshift.io/api
   documentation: |-
     Installs an operator via PKO ClusterPackage on the target cluster.
     Removes any existing ClusterPackage, production namespace, and specified
