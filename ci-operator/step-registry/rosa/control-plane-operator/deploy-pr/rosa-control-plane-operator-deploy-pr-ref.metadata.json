@@ -1,0 +1,17 @@
+{
+	"path": "rosa/control-plane-operator/deploy-pr/rosa-control-plane-operator-deploy-pr-ref.yaml",
+	"owners": {
+		"approvers": [
+			"tiwillia",
+			"dustman9000",
+			"bmeng",
+			"ravitri"
+		],
+		"reviewers": [
+			"tiwillia",
+			"dustman9000",
+			"bmeng",
+			"ravitri"
+		]
+	}
+}

@@ -1,0 +1,22 @@
+ref:
+  as: rosa-control-plane-operator-deploy-pr
+  from: rosa-aws-cli
+  grace_period: 10m
+  commands: rosa-control-plane-operator-deploy-pr-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  env:
+  - name: OCM_LOGIN_ENV
+    default: "staging"
+    documentation: The OCM environment to log into. Supported values are [production, staging, integration].
+  dependencies:
+  - name: control-plane-operator
+    env: CONTROL_PLANE_OPERATOR_IMAGE
+  documentation: |-
+    Deploys a CI-built control-plane-operator image to the HCP namespace on the
+    management cluster. Uses the ci-operator pipeline image injected via
+    dependencies and creates a temporary pull secret in the HCP namespace to
+    access the CI registry. Saves the original CPO image for restoration in post
+    steps. Must run after HCP provisioning and readiness steps.

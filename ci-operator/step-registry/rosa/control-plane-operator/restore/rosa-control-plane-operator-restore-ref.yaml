@@ -1,0 +1,14 @@
+ref:
+  as: rosa-control-plane-operator-restore
+  from: rosa-aws-cli
+  grace_period: 10m
+  commands: rosa-control-plane-operator-restore-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  documentation: |-
+    Restores the control-plane-operator deployment in the HCP namespace on the
+    MC to its original image after a PR test run. Reads the original image and
+    HCP namespace from SHARED_DIR and removes the temporary CI registry pull
+    secret. Must run as a best_effort post step.
