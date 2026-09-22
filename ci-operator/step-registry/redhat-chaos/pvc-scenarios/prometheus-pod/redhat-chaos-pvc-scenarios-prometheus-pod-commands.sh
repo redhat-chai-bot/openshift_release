@@ -42,12 +42,20 @@ echo "Using the flattened version of kubeconfig"
 oc config view --flatten > /tmp/config
 
 
+# Disable xtrace while handling Elasticsearch credentials.
+[[ $- == *x* ]] && WAS_TRACING=true || WAS_TRACING=false
+set +x
+
 typeset secretDir=/secret/es
 ES_PASSWORD=$(<"${secretDir}/es-password--${CHAOS_TEAM_NAME}")
 ES_USERNAME=$(<"${secretDir}/es-username--${CHAOS_TEAM_NAME}")
 
 export ES_PASSWORD
 export ES_USERNAME
+
+if [[ "${WAS_TRACING}" == true ]]; then
+  set -x
+fi
 
 case "${CHAOS_TEAM_NAME}" in
   chaos)
