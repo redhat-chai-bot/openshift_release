@@ -323,21 +323,43 @@ function suite() {
         HYPERVISOR_ARGS=("--with-hypervisor-json={\"hypervisorIP\":\"${HYPERVISOR_IP}\", \"sshUser\":\"${HYPERVISOR_SSH_USER}\", \"privateKeyPath\":\"${HYPERVISOR_SSH_KEY}\"}")
     fi
 
-    if [[ -n "${TEST_SKIPS}" && ("${TEST_SUITE}" == "openshift/conformance/parallel" || "${TEST_SUITE}" == "openshift/auth/external-oidc" || "${TEST_SUITE}" ==  "openshift/two-node") ]]; then
-        TESTS="$(openshift-tests run "${TEST_SUITE}" --dry-run --provider "${TEST_PROVIDER}" "${HYPERVISOR_ARGS[@]}")" &&
-        echo "${TESTS}" | grep -v "${TEST_SKIPS}" >/tmp/tests &&
-        echo "Tests to be skipped:" &&
-        echo "${TESTS}" | grep "${TEST_SKIPS}" || { exit_code=$?; echo 'Error: no tests were found matching the TEST_SKIPS regex:'; echo "$TEST_SKIPS"; return $exit_code; } &&
-        TEST_ARGS="${TEST_ARGS:-} --file /tmp/tests"
-        scp "${SSHOPTS[@]}" /tmp/tests "root@${IP}:/tmp/tests"
+    if [[ -n "${TEST_SKIPS}" && ("${TEST_SUITE}" == "openshift/conformance/parallel" || "${TEST_SUITE}" == "openshift/conformance/serial" || "${TEST_SUITE}" == "openshift/auth/external-oidc" || "${TEST_SUITE}" ==  "openshift/two-node") ]]; then
+        TESTS="$(openshift-tests run "${TEST_SUITE}" --dry-run --provider "${TEST_PROVIDER}" "${HYPERVISOR_ARGS[@]}")" || { exit_code=$?; echo 'Error: no tests were found matching the TEST_SKIPS regex:'; echo "$TEST_SKIPS"; return $exit_code; }
+        if grep -q "${TEST_SKIPS}" <<< "${TESTS}"; then
+            if echo "${TESTS}" | grep -v "${TEST_SKIPS}" >/tmp/tests; then
+                :
+            else
+                exit_code=$?
+                echo 'Error: no tests were found matching the TEST_SKIPS regex:'
+                echo "$TEST_SKIPS"
+                return $exit_code
+            fi
+            echo "Tests to be skipped:"
+            if echo "${TESTS}" | grep "${TEST_SKIPS}"; then
+                :
+            else
+                exit_code=$?
+                echo 'Error: no tests were found matching the TEST_SKIPS regex:'
+                echo "$TEST_SKIPS"
+                return $exit_code
+            fi
+            TEST_ARGS="${TEST_ARGS:-} --file /tmp/tests"
+            scp "${SSHOPTS[@]}" /tmp/tests "root@${IP}:/tmp/tests"
 
-        # Warn about individual skip patterns that match nothing.
-        # Assumes \| is only used as a top-level OR (true for all known usages at the time of writing).
-        echo "${TEST_SKIPS}" | sed 's/\\|/\n/g' | while IFS= read -r pattern; do
-            [[ -z "${pattern}" ]] && continue
-            echo "${TESTS}" | grep "${pattern}" > /dev/null 2>&1 ||
-                echo "Warning: TEST_SKIPS pattern matched 0 tests (test renamed/removed or regex invalid): ${pattern}"
-        done
+            # Warn about individual skip patterns that match nothing.
+            # Assumes \| is only used as a top-level OR (true for all known usages at the time of writing).
+            echo "${TEST_SKIPS}" | sed 's/\\|/\n/g' | while IFS= read -r pattern; do
+                [[ -z "${pattern}" ]] && continue
+                echo "${TESTS}" | grep "${pattern}" > /dev/null 2>&1 ||
+                    echo "Warning: TEST_SKIPS pattern matched 0 tests (test renamed/removed or regex invalid): ${pattern}"
+            done
+        elif [[ "${TEST_SUITE}" == "openshift/conformance/serial" ]]; then
+            echo "No serial tests were found matching the TEST_SKIPS regex; running the full serial suite."
+        else
+            echo 'Error: no tests were found matching the TEST_SKIPS regex:'
+            echo "${TEST_SKIPS}"
+            return 1
+        fi
     fi
 
     set -x
