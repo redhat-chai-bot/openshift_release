@@ -2412,11 +2412,11 @@ periodics:
     ci-operator.openshift.io/cloud: aws
     ci-operator.openshift.io/cloud-cluster-profile: aws-cspi-qe
     ci-operator.openshift.io/cluster: build05
-    ci-operator.openshift.io/variant: opp--ocp-4.22-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-4.22-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "4.22"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-4.22-lpMainline-lp-interop-cr--full-stack--aws
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-4.22-lpMainline-lp-interop--opp-cr--full-stack--aws
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -2441,7 +2441,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=cr--full-stack--aws
-      - --variant=opp--ocp-4.22-lpMainline-lp-interop
+      - --variant=ocp-4.22-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -2527,11 +2527,11 @@ periodics:
     ci-operator.openshift.io/cloud: vsphere
     ci-operator.openshift.io/cloud-cluster-profile: vsphere-elastic
     ci-operator.openshift.io/cluster: vsphere02
-    ci-operator.openshift.io/variant: opp--ocp-4.22-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-4.22-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "4.22"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-4.22-lpMainline-lp-interop-cr--full-stack--vsphere
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-4.22-lpMainline-lp-interop--opp-cr--full-stack--vsphere
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -2556,7 +2556,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=cr--full-stack--vsphere
-      - --variant=opp--ocp-4.22-lpMainline-lp-interop
+      - --variant=ocp-4.22-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -2642,11 +2642,11 @@ periodics:
     ci-operator.openshift.io/cloud: aws
     ci-operator.openshift.io/cloud-cluster-profile: aws-cspi-qe
     ci-operator.openshift.io/cluster: build05
-    ci-operator.openshift.io/variant: opp--ocp-5.0-fips-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-5.0-fips-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-5.0-fips-lpMainline-lp-interop-interop-opp-aws
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-5.0-fips-lpMainline-lp-interop--opp-interop-opp-aws
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -2671,7 +2671,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=interop-opp-aws
-      - --variant=opp--ocp-5.0-fips-lpMainline-lp-interop
+      - --variant=ocp-5.0-fips-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -2757,11 +2757,11 @@ periodics:
     ci-operator.openshift.io/cloud: aws
     ci-operator.openshift.io/cloud-cluster-profile: aws-cspi-qe
     ci-operator.openshift.io/cluster: build05
-    ci-operator.openshift.io/variant: opp--ocp-5.0-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-5.0-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-5.0-lpMainline-lp-interop-cr--full-stack--aws
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-5.0-lpMainline-lp-interop--opp-cr--full-stack--aws
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -2786,7 +2786,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=cr--full-stack--aws
-      - --variant=opp--ocp-5.0-lpMainline-lp-interop
+      - --variant=ocp-5.0-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -2872,11 +2872,11 @@ periodics:
     ci-operator.openshift.io/cloud: vsphere
     ci-operator.openshift.io/cloud-cluster-profile: vsphere-elastic
     ci-operator.openshift.io/cluster: vsphere02
-    ci-operator.openshift.io/variant: opp--ocp-5.0-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-5.0-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "5.0"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-5.0-lpMainline-lp-interop-interop-opp-vsphere
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-5.0-lpMainline-lp-interop--opp-interop-opp-vsphere
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -2901,7 +2901,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=interop-opp-vsphere
-      - --variant=opp--ocp-5.0-lpMainline-lp-interop
+      - --variant=ocp-5.0-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -2987,11 +2987,11 @@ periodics:
     ci-operator.openshift.io/cloud: aws
     ci-operator.openshift.io/cloud-cluster-profile: aws-cspi-qe
     ci-operator.openshift.io/cluster: build05
-    ci-operator.openshift.io/variant: opp--ocp-5.1-fips-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-5.1-fips-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "5.1"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-5.1-fips-lpMainline-lp-interop-interop-opp-aws
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-5.1-fips-lpMainline-lp-interop--opp-interop-opp-aws
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -3016,7 +3016,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=interop-opp-aws
-      - --variant=opp--ocp-5.1-fips-lpMainline-lp-interop
+      - --variant=ocp-5.1-fips-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -3102,11 +3102,11 @@ periodics:
     ci-operator.openshift.io/cloud: aws
     ci-operator.openshift.io/cloud-cluster-profile: aws-cspi-qe
     ci-operator.openshift.io/cluster: build05
-    ci-operator.openshift.io/variant: opp--ocp-5.1-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-5.1-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "5.1"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-5.1-lpMainline-lp-interop-cr--full-stack--aws
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-5.1-lpMainline-lp-interop--opp-cr--full-stack--aws
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -3131,7 +3131,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=cr--full-stack--aws
-      - --variant=opp--ocp-5.1-lpMainline-lp-interop
+      - --variant=ocp-5.1-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
@@ -3217,11 +3217,11 @@ periodics:
     ci-operator.openshift.io/cloud: vsphere
     ci-operator.openshift.io/cloud-cluster-profile: vsphere-elastic
     ci-operator.openshift.io/cluster: vsphere02
-    ci-operator.openshift.io/variant: opp--ocp-5.1-lpMainline-lp-interop
+    ci-operator.openshift.io/variant: ocp-5.1-lpMainline-lp-interop--opp
     ci.openshift.io/generator: prowgen
     job-release: "5.1"
     pj-rehearse.openshift.io/can-be-rehearsed: "true"
-  name: periodic-ci-RedHatQE-interop-testing-master-opp--ocp-5.1-lpMainline-lp-interop-interop-opp-vsphere
+  name: periodic-ci-RedHatQE-interop-testing-master-ocp-5.1-lpMainline-lp-interop--opp-interop-opp-vsphere
   reporter_config:
     slack:
       channel: '#opp-discussion'
@@ -3246,7 +3246,7 @@ periodics:
       - --report-credentials-file=/etc/report/credentials
       - --secret-dir=/secrets/ci-pull-credentials
       - --target=interop-opp-vsphere
-      - --variant=opp--ocp-5.1-lpMainline-lp-interop
+      - --variant=ocp-5.1-lpMainline-lp-interop--opp
       command:
       - ci-operator
       env:
