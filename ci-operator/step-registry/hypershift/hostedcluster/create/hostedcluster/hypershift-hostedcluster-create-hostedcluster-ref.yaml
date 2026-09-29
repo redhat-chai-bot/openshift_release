@@ -53,7 +53,7 @@ ref:
     documentation: "Availability policy for infrastructure services in guest cluster. Supported options: SingleReplica, HighlyAvailable, default SingleReplica"
   - name: HOSTED_MANAGEMENT_CLUSTER
     default: "hosted-mgmt"
-    documentation: "The cluster used to execute hypershift and host control plane components"
+    documentation: "The management cluster used to execute hypershift and host control plane components. Allowed values are hosted-mgmt (the legacy default) and hosted-mgmt2; unsupported values fail closed."
   - name: OLM_CATALOG_PLACEMENT
     default: "management"
     documentation: "The OLM catalog placement. Supported options: management, guest, default management"
