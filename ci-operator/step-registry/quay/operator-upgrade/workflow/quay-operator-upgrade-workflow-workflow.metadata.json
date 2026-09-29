@@ -1,0 +1,11 @@
+{
+	"path": "quay/operator-upgrade/workflow/quay-operator-upgrade-workflow-workflow.yaml",
+	"owners": {
+		"approvers": [
+			"quay-approvers"
+		],
+		"reviewers": [
+			"quay-approvers"
+		]
+	}
+}

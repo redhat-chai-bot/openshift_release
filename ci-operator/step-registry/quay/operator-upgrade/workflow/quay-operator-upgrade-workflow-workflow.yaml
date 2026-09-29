@@ -1,0 +1,22 @@
+workflow:
+  as: quay-operator-upgrade-workflow
+  steps:
+    allow_best_effort_post_steps: true
+    pre:
+    - ref: quay-operator-upgrade-install-source
+    - ref: quay-install-quay
+    - ref: quay-operator-upgrade-prepare-e2e
+    - ref: quay-create-admin-user
+    test:
+    - chain: quay-operator-upgrade-smoke
+    - ref: quay-operator-upgrade-upgrade
+    - chain: quay-operator-upgrade-full
+    post:
+    - ref: quay-gather
+  documentation: |-
+    Parameterized Quay n-1 to n OLM operator-upgrade scaffold: install Quay from
+    an immutable source catalog, run a positively selected source smoke suite,
+    upgrade to an immutable target catalog/channel, then run the target full
+    Playwright suite. The source and target catalogs/channels plus separate
+    PLAYWRIGHT_N_MINUS_ONE_* and PLAYWRIGHT_N_* suite refs are deliberately
+    required from the consuming job; this workflow does not choose a release.
