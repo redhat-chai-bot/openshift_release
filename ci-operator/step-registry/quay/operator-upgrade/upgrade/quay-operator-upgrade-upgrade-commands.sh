@@ -30,7 +30,9 @@ valid_digest_image "${SOURCE_IMAGE}" || fail "QUAY_UPGRADE_SOURCE_CATALOG_IMAGE 
 valid_digest_image "${TARGET_IMAGE}" || fail "QUAY_UPGRADE_TARGET_CATALOG_IMAGE must be image@sha256:<64 hex>"
 valid_channel "${SOURCE_CHANNEL}" || fail "QUAY_UPGRADE_SOURCE_CHANNEL is required and malformed"
 valid_channel "${TARGET_CHANNEL}" || fail "QUAY_UPGRADE_TARGET_CHANNEL is required and malformed"
-for name in "${SOURCE_CATALOG}" "${TARGET_CATALOG}" "${SUBSCRIPTION}"; do valid_name "${name}" || fail "invalid Kubernetes resource name: ${name}"; done
+for name in "${SOURCE_CATALOG}" "${TARGET_CATALOG}" "${CATALOG_NS}" "${OPERATOR_NS}" "${SUBSCRIPTION}" "${QUAY_NS}" "${QUAY_REGISTRY}"; do
+  valid_name "${name}" || fail "invalid Kubernetes resource name: ${name}"
+done
 [[ "${SOURCE_IMAGE}" != "${TARGET_IMAGE}" || "${SOURCE_CHANNEL}" != "${TARGET_CHANNEL}" ]] || fail "source and target catalog/channel are identical; refusing a non-upgrade"
 UPGRADE_SECONDS="$(duration_seconds "${UPGRADE_TIMEOUT}")" || fail "QUAY_UPGRADE_TIMEOUT must be a positive Ns, Nm, or Nh duration"
 CATALOG_SECONDS="$(duration_seconds "${CATALOG_TIMEOUT}")" || fail "QUAY_UPGRADE_CATALOG_TIMEOUT must be a positive Ns, Nm, or Nh duration"
@@ -72,17 +74,26 @@ app_images() {
 [[ -s "${SHARED_DIR}/quay-upgrade-source-identity" ]] || fail "missing source identity from quay-operator-upgrade-install-source"
 source_identity="$(cat "${SHARED_DIR}/quay-upgrade-source-identity")"
 grep -Fxq "catalog_name=${SOURCE_CATALOG}" <<<"${source_identity}" || fail "source catalog name does not match recorded identity"
+grep -Fxq "catalog_namespace=${CATALOG_NS}" <<<"${source_identity}" || fail "source catalog namespace does not match recorded identity"
 grep -Fxq "catalog_image=${SOURCE_IMAGE}" <<<"${source_identity}" || fail "source catalog image does not match recorded identity"
 grep -Fxq "channel=${SOURCE_CHANNEL}" <<<"${source_identity}" || fail "source channel does not match recorded identity"
+grep -Fxq "subscription_namespace=${OPERATOR_NS}" <<<"${source_identity}" || fail "source subscription namespace does not match recorded identity"
+grep -Fxq "subscription_name=${SUBSCRIPTION}" <<<"${source_identity}" || fail "source subscription name does not match recorded identity"
 
 pre_csv="$(oc get subscription -n "${OPERATOR_NS}" "${SUBSCRIPTION}" -o jsonpath='{.status.installedCSV}' 2>/dev/null || true)"
 [[ -n "${pre_csv}" ]] || fail "Subscription ${OPERATOR_NS}/${SUBSCRIPTION} has no installedCSV"
+grep -Fxq "installed_csv=${pre_csv}" <<<"${source_identity}" || fail "Subscription installedCSV changed after the source installation"
 pre_phase="$(oc get csv -n "${OPERATOR_NS}" "${pre_csv}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
 [[ "${pre_phase}" == Succeeded ]] || fail "pre-upgrade CSV ${pre_csv} is not Succeeded (phase ${pre_phase:-empty})"
 actual_source="$(oc get subscription -n "${OPERATOR_NS}" "${SUBSCRIPTION}" -o jsonpath='{.spec.source}' 2>/dev/null || true)"
 actual_channel="$(oc get subscription -n "${OPERATOR_NS}" "${SUBSCRIPTION}" -o jsonpath='{.spec.channel}' 2>/dev/null || true)"
 [[ "${actual_source}" == "${SOURCE_CATALOG}" && "${actual_channel}" == "${SOURCE_CHANNEL}" ]] || fail "Subscription does not match the requested n-1 source identity"
 app_images >"${ARTIFACT_DIR}/quay-app-images-before.txt"
+
+if oc get catalogsource -n "${CATALOG_NS}" "${TARGET_CATALOG}" >/dev/null 2>&1; then
+  owner="$(oc get catalogsource -n "${CATALOG_NS}" "${TARGET_CATALOG}" -o jsonpath='{.metadata.labels.quay-operator-upgrade\\.openshift\\.io/scaffold}' 2>/dev/null || true)"
+  [[ "${owner}" == true ]] || fail "CatalogSource ${CATALOG_NS}/${TARGET_CATALOG} exists but is not owned by this scaffold"
+fi
 
 cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1

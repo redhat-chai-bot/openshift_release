@@ -672,6 +672,28 @@ startJaegerPortForward
 
 echo "Running Playwright e2e install tests from ${PLAYWRIGHT_WORKDIR} (ref ${PLAYWRIGHT_GIT_REF}, workers ${PLAYWRIGHT_WORKERS})..."
 pushd "${PLAYWRIGHT_WORKDIR}"
+if [[ -n "${PLAYWRIGHT_GREP}" ]]; then
+  # A positive selector is useful only when it actually selects something.  Playwright
+  # can otherwise exit successfully after running zero tests, which would make the
+  # n-1 smoke stage a false-positive gate.
+  if ! selected_tests_output="$(npx playwright test "${GREP_ARGS[@]}" "${GREP_INVERT_ARGS[@]}" --list 2>&1)"; then
+    printf '%s\n' "${selected_tests_output}" | tee "${ARTIFACT_DIR}/playwright-selected-tests.log" >&2
+    echo "ERROR: unable to list tests selected by PLAYWRIGHT_GREP" >&2
+    exit 1
+  fi
+  printf '%s\n' "${selected_tests_output}" | tee "${ARTIFACT_DIR}/playwright-selected-tests.log"
+  if [[ "${selected_tests_output}" =~ Total:[[:space:]]+([0-9]+)[[:space:]]+tests? ]]; then
+    selected_tests="${BASH_REMATCH[1]}"
+  else
+    echo "ERROR: Playwright --list output did not report a selected-test total" >&2
+    exit 1
+  fi
+  if (( selected_tests == 0 )); then
+    echo "ERROR: PLAYWRIGHT_GREP selected zero tests" >&2
+    exit 1
+  fi
+  echo "PLAYWRIGHT_GREP selected ${selected_tests} test(s)."
+fi
 npx playwright test \
   "${GREP_ARGS[@]}" \
   "${GREP_INVERT_ARGS[@]}" \

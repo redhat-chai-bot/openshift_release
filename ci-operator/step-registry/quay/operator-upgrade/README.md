@@ -7,18 +7,20 @@ tag, channel, or floating catalog default.
 
 The workflow order is:
 
-1. `quay-operator-upgrade-install-source` creates an n-1 `CatalogSource` from
+1. `quay-install-odf-operator` provides the NooBaa CRD required by the existing
+   `quay-install-quay` step.
+2. `quay-operator-upgrade-install-source` creates an n-1 `CatalogSource` from
    `QUAY_UPGRADE_SOURCE_CATALOG_IMAGE`, requires its requested source channel,
    and records the Succeeded `installedCSV`.
-2. `quay-install-quay`, `quay-operator-upgrade-prepare-e2e`, and
+3. `quay-install-quay`, `quay-operator-upgrade-prepare-e2e`, and
    `quay-create-admin-user` create a temporary Quay instance and its Playwright
    route/admin credentials.
-3. `quay-operator-upgrade-smoke` is a thin wrapper around `quay-test-e2e` with
+4. `quay-operator-upgrade-smoke` is a thin wrapper around `quay-test-e2e` with
    a positive `PLAYWRIGHT_GREP` (default `@smoke`).
-4. `quay-operator-upgrade-upgrade` creates the n catalog, changes both Subscription
+5. `quay-operator-upgrade-upgrade` creates the n catalog, changes both Subscription
    catalog source and channel, requires a different Succeeded `installedCSV`,
    and asserts QuayRegistry and quay-app readiness.
-5. `quay-operator-upgrade-full` is the second thin `quay-test-e2e` wrapper;
+6. `quay-operator-upgrade-full` is the second thin `quay-test-e2e` wrapper;
    it runs the full target suite subject to the existing exclusion default.
 
 ## Required consumer values

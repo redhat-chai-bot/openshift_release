@@ -22,8 +22,9 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 
 valid_digest_image "${SOURCE_IMAGE}" || fail "QUAY_UPGRADE_SOURCE_CATALOG_IMAGE must be image@sha256:<64 hex>"
 valid_channel "${SOURCE_CHANNEL}" || fail "QUAY_UPGRADE_SOURCE_CHANNEL is required and malformed"
-valid_name "${SOURCE_CATALOG}" || fail "QUAY_UPGRADE_SOURCE_CATALOG_NAME is invalid"
-valid_name "${SUBSCRIPTION}" || fail "QUAY_UPGRADE_SUBSCRIPTION_NAME is invalid"
+for name in "${SOURCE_CATALOG}" "${CATALOG_NS}" "${OPERATOR_NS}" "${SUBSCRIPTION}"; do
+  valid_name "${name}" || fail "invalid Kubernetes resource name: ${name}"
+done
 WAIT_SECONDS="$(duration_seconds "${TIMEOUT}")" || fail "QUAY_UPGRADE_CATALOG_TIMEOUT must be a positive Ns, Nm, or Nh duration"
 
 diagnostics() {
@@ -53,6 +54,10 @@ wait_catalog() {
 
 oc get namespace "${CATALOG_NS}" >/dev/null
 oc get namespace "${OPERATOR_NS}" >/dev/null
+if oc get catalogsource -n "${CATALOG_NS}" "${SOURCE_CATALOG}" >/dev/null 2>&1; then
+  owner="$(oc get catalogsource -n "${CATALOG_NS}" "${SOURCE_CATALOG}" -o jsonpath='{.metadata.labels.quay-operator-upgrade\\.openshift\\.io/scaffold}' 2>/dev/null || true)"
+  [[ "${owner}" == true ]] || fail "CatalogSource ${CATALOG_NS}/${SOURCE_CATALOG} exists but is not owned by this scaffold"
+fi
 if oc get subscription -n "${OPERATOR_NS}" "${SUBSCRIPTION}" >/dev/null 2>&1; then
   owner="$(oc get subscription -n "${OPERATOR_NS}" "${SUBSCRIPTION}" -o jsonpath='{.metadata.labels.quay-operator-upgrade\.openshift\.io/scaffold}' 2>/dev/null || true)"
   [[ "${owner}" == true ]] || fail "Subscription ${OPERATOR_NS}/${SUBSCRIPTION} exists but is not owned by this scaffold"
