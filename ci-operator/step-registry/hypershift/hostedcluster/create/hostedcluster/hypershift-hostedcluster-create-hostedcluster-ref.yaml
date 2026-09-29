@@ -106,7 +106,11 @@ ref:
     tag: "latest"
   grace_period: 5m0s
   leases:
-    - resource_type: hypershift-hive-quota-slice
+    - resource_type_from_parameter:
+        parameter: HOSTED_MANAGEMENT_CLUSTER
+        values:
+          hosted-mgmt: hypershift-hive-quota-slice
+          hosted-mgmt2: hypershift-hive-quota-slice-hosted-mgmt2
       env: HYPERSHIFT_HIVE_LEASED_RESOURCE
   resources:
     requests:

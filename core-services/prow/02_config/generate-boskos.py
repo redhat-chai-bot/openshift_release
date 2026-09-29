@@ -571,6 +571,10 @@ CONFIG = {
     'hypershift-hive-quota-slice': {
         'default': 20,
     },
+    'hypershift-hive-quota-slice-hosted-mgmt2': {
+        # UNVALIDATED capacity: requires human review before deployment.
+        'default': 100,
+    },
     'aws-virtualization-quota-slice': {
         'us-east-1': 5,
         'us-east-2': 5,

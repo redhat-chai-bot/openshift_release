@@ -5121,6 +5121,10 @@ resources:
   min-count: 20
   state: free
   type: hypershift-hive-quota-slice
+- max-count: 100
+  min-count: 100
+  state: free
+  type: hypershift-hive-quota-slice-hosted-mgmt2
 - max-count: 5
   min-count: 5
   state: free
