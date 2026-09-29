@@ -29,7 +29,7 @@ tests:
   steps:
     cluster_profile: azure-quay-qe
     env:
-      BASE_DOMAIN_RESOURCE_GROUP: quay-qe-dns
+      BASE_DOMAIN_RESOURCE_GROUP: os4-common
       COMPUTE_NODE_TYPE: Standard_D8as_v7
       CONTROL_PLANE_INSTANCE_TYPE: Standard_D8as_v7
       ENABLE_BUILD_SUPPORT: "true"
