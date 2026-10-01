@@ -36,7 +36,10 @@ images:
       WORKDIR /src/rebasebot
       RUN python3.12 -m pip install --no-cache-dir uv && python3.12 -m pip install .
       WORKDIR /working
-      RUN rm -rf /src && chmod -R a+rwX,o-w /working
+      RUN rm -rf /src && \
+          chmod -R a+rwX,o-w /working && \
+          chown 1001:0 /home/user && \
+          chmod g=u /home/user
       USER 1001:1001
     from: nested-podman
     inputs:
