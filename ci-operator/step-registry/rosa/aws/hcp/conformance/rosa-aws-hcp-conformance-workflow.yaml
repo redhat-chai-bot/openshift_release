@@ -35,6 +35,7 @@ workflow:
         decrease memory limit below usage\|
         CSI Mock selinux on mount SELinuxMount\|
         CSI Mock volume expansion Expansion with recovery\|
+        CSI Mock volume fsgroup policies\|
         cloud-provider-aws-e2e.*loadbalancer NLB internal should be reachable with hairpinning traffic\|
         cloud-provider-aws-e2e.*loadbalancer NLB should be reachable with target-node-labels\|
         MutableCSINodeAllocatableCount.*Attach Limit Exceeded should transition pod to failed state\|
@@ -51,7 +52,7 @@ workflow:
         AWSServiceLBNetworkSecurityGroup\|
         cloud-provider-aws-e2e.*BYO.*Security Group\|
         cloud-provider-aws-e2e.*transition from.*SG\|
-        InPlace Resize Container\|
+        InPlace Resize\|
         Monitor:apiserver-incluster-availability.*monitor test apiserver-incluster-availability\|
         CSI.*csi-hostpath.*provisioning\|
         CSI.*csi-hostpath-groupsnapshot.*VolumeGroupSnapshot.*Ephemeral-volume.*ephemeral\|
