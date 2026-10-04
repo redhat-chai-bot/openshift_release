@@ -93,7 +93,7 @@ write_upgrade_metrics() {
   mkdir -p "${ARTIFACT_DIR}" || return 0
   jq -n \
     --arg start "${UPGRADE_START_ISO}" \
-    --arg end "${end_iso}" \
+    --arg finish "${end_iso}" \
     --argjson start_epoch "${UPGRADE_START_EPOCH}" \
     --argjson end_epoch "${end_epoch}" \
     --argjson duration_seconds "${duration}" \
@@ -101,7 +101,7 @@ write_upgrade_metrics() {
     --arg to_version "${recommended_version:-${UPGRADED_TO_VERSION:-}}" \
     '{
       start: $start,
-      end: $end,
+      end: $finish,
       start_epoch: $start_epoch,
       end_epoch: $end_epoch,
       duration_seconds: $duration_seconds,
@@ -159,6 +159,8 @@ function get_recommended_version_for_cluster () {
   recommended_version=$(rosa list upgrade -c $cluster_id | grep -v 'no available upgrades' | grep 'recommended' | grep $major_version | cut -d ' ' -f1 || true)
   if [[ -z "$recommended_version" ]]; then
     log "Error: No recommended $major_version version for the cluster $cluster_id to be upgraded to."
+    log "--- rosa list upgrade output ---"
+    rosa list upgrade -c $cluster_id 2>&1 | tee "${ARTIFACT_DIR}/rosa-list-upgrade.txt" || true
     exit 1
   fi
 }
