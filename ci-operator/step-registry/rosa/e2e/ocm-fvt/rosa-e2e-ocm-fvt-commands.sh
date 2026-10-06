@@ -281,6 +281,39 @@ chmod 1777 "${ocm_fvt_output}"
 podman_args+=("-v" "${ocm_fvt_output}:/ocm-backend-tests/output:z")
 podman_args+=(--rm)
 
+record_ocm_fvt_cluster_ids() {
+  local output_dir="$1"
+  local shared_dir="$2"
+  local kubeconfig_dir="${output_dir}/.datainfo/kube-configs"
+  local kubeconfig filename cluster_id target temp_file
+  local -a cluster_ids=()
+  local -A seen=()
+
+  [[ -d "${kubeconfig_dir}" && -d "${shared_dir}" ]] || return 0
+
+  while IFS= read -r -d '' kubeconfig; do
+    filename="${kubeconfig##*/}"
+    cluster_id="${filename%.kubeconfig}"
+    if [[ "${cluster_id}" =~ ^[0-9a-z]{32}$ && -z "${seen[${cluster_id}]:-}" ]]; then
+      cluster_ids+=("${cluster_id}")
+      seen["${cluster_id}"]=true
+    fi
+  done < <(find "${kubeconfig_dir}" -maxdepth 1 -type f -name '*.kubeconfig' -print0 | sort -zu)
+
+  case "${#cluster_ids[@]}" in
+    0) return 0 ;;
+    1) target="cluster-id" ;;
+    *) target="cluster-ids" ;;
+  esac
+
+  temp_file=$(mktemp "${shared_dir}/${target}.XXXXXX") || return 0
+  if ! printf '%s\n' "${cluster_ids[@]}" > "${temp_file}" ||
+    ! chmod 0644 "${temp_file}" ||
+    ! mv -f "${temp_file}" "${shared_dir}/${target}"; then
+    rm -f "${temp_file}"
+  fi
+}
+
 ocmtest_args=(test --service "${OCM_FVT_SERVICE:-cms}" --job "${OCM_FVT_JOB_NAME}")
 
 # ROSAENG-67791: osdfm metrics/alerts query RHOBS (in-cluster prometheus-app-sre PF removed).
@@ -370,6 +403,7 @@ podman run \
   "${zero_egress_env[@]}" \
   quay.io/redhat-services-prod/rosa-tenant/rosa-backend-tests/rosa-backend-tests:latest \
   ocmtest "${ocmtest_args[@]}" || exit_code=$?
+record_ocm_fvt_cluster_ids "${ocm_fvt_output}" "${SHARED_DIR}" || true
 $WAS_TRACING_RUN && set -x
 
 # Copy merged report.xml (skip per-phase duplicates).
