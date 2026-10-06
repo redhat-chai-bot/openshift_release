@@ -32,6 +32,7 @@ workflow:
         In-tree Volumes.*Driver: local.*subPath should support\|
         DRA.*kubelet.*DynamicResourceAllocation\|
         \[FeatureGate:DRAExtendedResource\]\|
+        \[Feature:OffByDefault\]\|
         decrease memory limit below usage\|
         CSI Mock selinux on mount SELinuxMount\|
         CSI Mock volume expansion Expansion with recovery\|
