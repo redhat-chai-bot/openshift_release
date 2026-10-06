@@ -4,6 +4,366 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+log(){
+    echo -e "\033[1m$(date "+%d-%m-%YT%H:%M:%S") " "${*}\033[0m" >&2
+}
+
+parse_required_cr_entry() {
+    local entry="$1"
+    local remainder
+
+    if [[ "${entry}" != */* ]]; then
+        return 1
+    fi
+
+    REQUIRED_RESOURCE_TYPE="${entry%%/*}"
+    remainder="${entry#*/}"
+    REQUIRED_CR_NAME="${remainder%%/*}"
+    REQUIRED_CR_NAMESPACE=""
+    if [[ "${remainder}" == */* ]]; then
+        REQUIRED_CR_NAMESPACE="${remainder#*/}"
+    fi
+
+    [[ -n "${REQUIRED_RESOURCE_TYPE}" && -n "${REQUIRED_CR_NAME}" ]]
+}
+
+sanitize_required_cr_backup() {
+    # Keep legitimate ownership, but discard Package Operator ownership that
+    # points at a ClusterObjectSet replaced during the package swap.
+    jq '
+        del(
+            .status,
+            .metadata.resourceVersion,
+            .metadata.uid,
+            .metadata.generation,
+            .metadata.creationTimestamp,
+            .metadata.managedFields,
+            .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]
+        ) |
+        .metadata.ownerReferences = [
+            (.metadata.ownerReferences // [])[] |
+            select((
+                (.apiVersion // "" | startswith("package-operator.run/")) and
+                ((.kind // "") == "ClusterObjectSet")
+            ) | not)
+        ]
+    '
+}
+
+write_required_cr_backup() {
+    local backup_file="$1"
+    local temporary_backup
+
+    if ! temporary_backup="$(mktemp "${backup_file}.XXXXXX")"; then
+        return 1
+    fi
+    if ! chmod 0600 "${temporary_backup}"; then
+        rm -f "${temporary_backup}"
+        return 1
+    fi
+    if ! sanitize_required_cr_backup > "${temporary_backup}"; then
+        rm -f "${temporary_backup}"
+        return 1
+    fi
+    if ! mv "${temporary_backup}" "${backup_file}"; then
+        rm -f "${temporary_backup}"
+        return 1
+    fi
+}
+
+restore_required_cr_backups() {
+    local backup
+    local owner_references
+    local restore_kind
+    local restore_name
+
+    [[ -d "${REQUIRED_CR_BACKUP_DIR}" ]] || return 0
+    for backup in "${REQUIRED_CR_BACKUP_DIR}"/*.json; do
+        [[ -f "${backup}" ]] || continue
+        restore_kind=$(jq -r '.kind // "resource"' "${backup}")
+        restore_name=$(jq -r '.metadata.name // "unknown"' "${backup}")
+        owner_references=$(jq -c '.metadata.ownerReferences // []' "${backup}")
+        log "Restoring pre-existing required CR ${restore_kind}/${restore_name}"
+        if ! oc apply -f "${backup}" \
+            || ! oc patch -f "${backup}" --type merge \
+                -p '{"metadata":{"ownerReferences":'"${owner_references}"'}}'; then
+            log "ERROR: Failed to restore required CR ${restore_kind}/${restore_name}"
+            return 1
+        fi
+    done
+}
+
+clusterpackage_diagnostic() {
+    local package_name="$1"
+
+    if ! oc get clusterpackage "${package_name}" -o json 2>/dev/null \
+        | jq --arg name "${package_name}" '{
+            name: (.metadata.name // $name),
+            available: true,
+            creationTimestamp: (.metadata.creationTimestamp // null),
+            labels: {
+                "package-operator.run/instance": ((.metadata.labels // {})["package-operator.run/instance"] // null)
+            } | with_entries(select(.value != null)),
+            annotations: {
+                "package-operator.run/revision": ((.metadata.annotations // {})["package-operator.run/revision"] // null)
+            } | with_entries(select(.value != null)),
+            spec: {paused: (if (.spec | has("paused")) then .spec.paused else null end)},
+            status: {
+                phase: (.status.phase // null),
+                conditions: [(.status.conditions // [])[] | {
+                    type: (.type // null),
+                    status: (.status // null),
+                    reason: (.reason // null),
+                    lastTransitionTime: (.lastTransitionTime // null)
+                }]
+            }
+        }'; then
+        jq -n --arg name "${package_name}" '{name: $name, available: false}'
+    fi
+}
+
+write_clusterpackage_diagnostic() {
+    local package_name="$1"
+    local artifact_file="$2"
+    local temporary_artifact
+
+    if ! temporary_artifact=$(mktemp "${artifact_file}.tmp.XXXXXX"); then
+        return 1
+    fi
+    if ! clusterpackage_diagnostic "${package_name}" > "${temporary_artifact}" \
+        || ! mv "${temporary_artifact}" "${artifact_file}"; then
+        rm -f "${temporary_artifact}"
+        return 1
+    fi
+}
+
+collect_required_resource_inventory() {
+    local phase="$1"
+    local artifact_file
+    local temporary_artifact
+    local entry
+    local resource_types_seen=","
+    local -a inventory_entries
+
+    [[ -n "${ARTIFACT_DIR:-}" && -n "${OPERATOR_REQUIRED_CRS:-}" ]] || return 0
+
+    artifact_file="${ARTIFACT_DIR}/required-resource-inventory-${phase}.jsonl"
+    if ! temporary_artifact=$(mktemp "${artifact_file}.tmp.XXXXXX"); then
+        return 1
+    fi
+
+    IFS=',' read -ra inventory_entries <<< "${OPERATOR_REQUIRED_CRS}"
+    for entry in "${inventory_entries[@]}"; do
+        entry=$(echo "${entry}" | xargs)
+        [[ -z "${entry}" ]] && continue
+        if ! parse_required_cr_entry "${entry}"; then
+            continue
+        fi
+        if [[ "${resource_types_seen}" == *",${REQUIRED_RESOURCE_TYPE},"* ]]; then
+            continue
+        fi
+        resource_types_seen="${resource_types_seen}${REQUIRED_RESOURCE_TYPE},"
+
+        # Persist only inventory metadata. In particular, never include spec or
+        # data fields because a future required resource type could contain
+        # credentials even though the current callers use operator CRs.
+        if ! oc get "${REQUIRED_RESOURCE_TYPE}" -A -o json 2>/dev/null \
+            | jq -c --arg resource "${REQUIRED_RESOURCE_TYPE}" '{
+                resource: $resource,
+                available: true,
+                items: [(.items // [])[] | {
+                    namespace: (.metadata.namespace // ""),
+                    name: .metadata.name,
+                    creationTimestamp: (.metadata.creationTimestamp // null),
+                    hiveManaged: ((.metadata.labels // {})["hive.openshift.io/managed"] // null)
+                }]
+            }' >> "${temporary_artifact}"; then
+            jq -nc --arg resource "${REQUIRED_RESOURCE_TYPE}" \
+                '{resource: $resource, available: false, items: []}' >> "${temporary_artifact}" || true
+        fi
+    done
+    if ! mv "${temporary_artifact}" "${artifact_file}"; then
+        rm -f "${temporary_artifact}"
+        return 1
+    fi
+}
+
+collect_crd_ownership() {
+    local phase="$1"
+    local artifact_file
+    local temporary_artifact
+    local crd
+    local -a ownership_crds
+
+    [[ -n "${ARTIFACT_DIR:-}" && -n "${OPERATOR_CRDS:-}" ]] || return 0
+
+    artifact_file="${ARTIFACT_DIR}/crd-ownership-${phase}.jsonl"
+    if ! temporary_artifact=$(mktemp "${artifact_file}.tmp.XXXXXX"); then
+        return 1
+    fi
+
+    IFS=',' read -ra ownership_crds <<< "${OPERATOR_CRDS}"
+    for crd in "${ownership_crds[@]}"; do
+        crd=$(echo "${crd}" | xargs)
+        [[ -z "${crd}" ]] && continue
+        if ! oc get crd "${crd}" -o json 2>/dev/null \
+            | jq -c '{
+                name: .metadata.name,
+                available: true,
+                labels: {
+                    "package-operator.run/instance": ((.metadata.labels // {})["package-operator.run/instance"] // null),
+                    "hive.openshift.io/managed": ((.metadata.labels // {})["hive.openshift.io/managed"] // null)
+                } | with_entries(select(.value != null)),
+                annotations: {
+                    "package-operator.run/revision": ((.metadata.annotations // {})["package-operator.run/revision"] // null)
+                } | with_entries(select(.value != null)),
+                ownerReferences: [(.metadata.ownerReferences // [])[] | {
+                    apiVersion: (.apiVersion // null),
+                    kind: (.kind // null),
+                    name: (.name // null),
+                    uid: (.uid // null),
+                    controller: (.controller // null),
+                    blockOwnerDeletion: (.blockOwnerDeletion // null)
+                }]
+            }' >> "${temporary_artifact}"; then
+            jq -nc --arg name "${crd}" \
+                '{name: $name, available: false, labels: {}, annotations: {}, ownerReferences: []}' \
+                >> "${temporary_artifact}" || true
+        fi
+    done
+    if ! mv "${temporary_artifact}" "${artifact_file}"; then
+        rm -f "${temporary_artifact}"
+        return 1
+    fi
+}
+
+ocm_login_for_diagnostics() {
+    local profile_dir="${CLUSTER_PROFILE_DIR:-/var/run/secrets/ci.openshift.io/cluster-profile}"
+    local login_env="${OCM_LOGIN_ENV:-staging}"
+    local claimed_env=""
+    local sso_client_id=""
+    local sso_client_secret=""
+    local ocm_token=""
+
+    if [[ -n "${SHARED_DIR:-}" ]]; then
+        claimed_env=$(cat "${SHARED_DIR}/ocm-env" 2>/dev/null || true)
+    fi
+    login_env="${claimed_env:-${login_env}}"
+    sso_client_id=$(cat "${profile_dir}/sso-client-id" 2>/dev/null || true)
+    sso_client_secret=$(cat "${profile_dir}/sso-client-secret" 2>/dev/null || true)
+    ocm_token=$(cat "${profile_dir}/ocm-token" 2>/dev/null || true)
+
+    if [[ -n "${sso_client_id}" && -n "${sso_client_secret}" ]]; then
+        timeout "${OCM_DIAGNOSTIC_TIMEOUT:-20s}" ocm login --url "${login_env}" --client-id "${sso_client_id}" \
+            --client-secret "${sso_client_secret}" >/dev/null 2>&1
+    elif [[ -n "${ocm_token}" ]]; then
+        timeout "${OCM_DIAGNOSTIC_TIMEOUT:-20s}" ocm login --url "${login_env}" \
+            --token "${ocm_token}" >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+collect_hive_sync_state() {
+    local cluster_id=""
+    local syncsets_artifact
+    local clustersync_artifact
+    local syncsets_temporary
+    local clustersync_temporary
+
+    [[ -n "${ARTIFACT_DIR:-}" ]] || return 0
+
+    syncsets_artifact="${ARTIFACT_DIR}/hive-syncsets-filtered.json"
+    clustersync_artifact="${ARTIFACT_DIR}/hive-clustersync-filtered.json"
+    if ! syncsets_temporary=$(mktemp "${syncsets_artifact}.tmp.XXXXXX") \
+        || ! clustersync_temporary=$(mktemp "${clustersync_artifact}.tmp.XXXXXX"); then
+        rm -f "${syncsets_temporary:-}" "${clustersync_temporary:-}"
+        return 1
+    fi
+    if [[ -n "${SHARED_DIR:-}" ]]; then
+        cluster_id=$(cat "${SHARED_DIR}/cluster-id" 2>/dev/null || true)
+    fi
+
+    if [[ -z "${cluster_id}" ]] || ! command -v ocm >/dev/null 2>&1 || ! ocm_login_for_diagnostics; then
+        jq -n '{available: false, reason: "cluster identifier or OCM access unavailable"}' \
+            > "${syncsets_temporary}" || true
+        jq -n '{available: false, reason: "cluster identifier or OCM access unavailable"}' \
+            > "${clustersync_temporary}" || true
+        mv "${syncsets_temporary}" "${syncsets_artifact}" || true
+        mv "${clustersync_temporary}" "${clustersync_artifact}" || true
+        return 0
+    fi
+
+    # The SyncSet API can contain complete resource manifests, including
+    # Secrets. Retain collection metadata only and discard every payload.
+    if ! timeout "${OCM_DIAGNOSTIC_TIMEOUT:-20s}" ocm get "/api/clusters_mgmt/v1/clusters/${cluster_id}/external_configuration/syncsets" 2>/dev/null \
+        | jq '{
+            available: true,
+            total: (.total // null),
+            size: (.size // null),
+            page: (.page // null),
+            items: [(.items // [])[] | {
+                id: (.id // null),
+                href: (.href // null),
+                creationTimestamp: (.creation_timestamp // .created_at // null),
+                updatedTimestamp: (.updated_timestamp // .updated_at // null)
+            }]
+        }' > "${syncsets_temporary}"; then
+        jq -n '{available: false, reason: "OCM SyncSet query failed"}' > "${syncsets_temporary}" || true
+    fi
+    mv "${syncsets_temporary}" "${syncsets_artifact}" || true
+
+    # ClusterSync status reports Hive reconciliation outcomes. Select status
+    # and minimal identity only; never persist the live-resources payload.
+    if ! timeout "${OCM_DIAGNOSTIC_TIMEOUT:-20s}" ocm get "/api/clusters_mgmt/v1/clusters/${cluster_id}/resources/live" 2>/dev/null \
+        | jq '
+            (.resources.cluster_sync // .cluster_sync // null) as $raw |
+            (if ($raw | type) == "string" then (try ($raw | fromjson) catch null) else $raw end) as $sync |
+            if $sync == null then
+                {available: false, reason: "ClusterSync not present in live resources"}
+            else
+                {
+                    available: true,
+                    apiVersion: ($sync.apiVersion // null),
+                    kind: ($sync.kind // null),
+                    metadata: {
+                        name: ($sync.metadata.name // null),
+                        namespace: ($sync.metadata.namespace // null),
+                        creationTimestamp: ($sync.metadata.creationTimestamp // null)
+                    },
+                    status: {
+                        syncSets: [($sync.status.syncSets // [])[] | {
+                            name: (.name // null),
+                            observedGeneration: (.observedGeneration // null),
+                            result: (.result // null),
+                            lastTransitionTime: (.lastTransitionTime // null),
+                            firstSuccessTime: (.firstSuccessTime // null)
+                        }],
+                        selectorSyncSets: [($sync.status.selectorSyncSets // [])[] | {
+                            name: (.name // null),
+                            observedGeneration: (.observedGeneration // null),
+                            result: (.result // null),
+                            lastTransitionTime: (.lastTransitionTime // null),
+                            firstSuccessTime: (.firstSuccessTime // null)
+                        }],
+                        conditions: [($sync.status.conditions // [])[] | {
+                            type: (.type // null),
+                            status: (.status // null),
+                            reason: (.reason // null),
+                            lastProbeTime: (.lastProbeTime // null),
+                            lastTransitionTime: (.lastTransitionTime // null)
+                        }],
+                        firstSuccessTime: ($sync.status.firstSuccessTime // null),
+                        controlledByReplica: ($sync.status.controlledByReplica // null)
+                    }
+                }
+            end
+        ' > "${clustersync_temporary}"; then
+        jq -n '{available: false, reason: "OCM ClusterSync query failed"}' > "${clustersync_temporary}" || true
+    fi
+    mv "${clustersync_temporary}" "${clustersync_artifact}" || true
+}
+
 collect_operator_logs() {
     local ns="${OPERATOR_NAMESPACE:-openshift-${OPERATOR_NAME:-unknown}}"
     if [[ -n "${ARTIFACT_DIR:-}" ]] && oc get namespace "${ns}" &>/dev/null; then
@@ -25,24 +385,46 @@ collect_operator_logs() {
             oc get events -n "${pko_ns}" --sort-by='.lastTimestamp' \
                 > "${ARTIFACT_DIR}/pko-namespace-events.txt" 2>&1 || true
         fi
-        oc get clusterpackage "${CLUSTER_PACKAGE_NAME:-}" -o yaml \
-            > "${ARTIFACT_DIR}/clusterpackage-dump.yaml" 2>/dev/null || true
+        if [[ -n "${CLUSTER_PACKAGE_NAME:-}" ]]; then
+            write_clusterpackage_diagnostic "${CLUSTER_PACKAGE_NAME}" \
+                "${ARTIFACT_DIR}/clusterpackage-diagnostic.json" || true
+        fi
         # Also dump the production ClusterPackage if its name differs from
         # the e2e test package, so pause-timeout failures are diagnosable.
         if [[ -n "${OPERATOR_NAME:-}" && "${OPERATOR_NAME}" != "${CLUSTER_PACKAGE_NAME:-}" ]]; then
-            oc get clusterpackage "${OPERATOR_NAME}" -o yaml \
-                > "${ARTIFACT_DIR}/clusterpackage-${OPERATOR_NAME}-dump.yaml" 2>/dev/null || true
+            write_clusterpackage_diagnostic "${OPERATOR_NAME}" \
+                "${ARTIFACT_DIR}/clusterpackage-${OPERATOR_NAME}-diagnostic.json" || true
         fi
         oc get clusterobjectset -o wide \
             > "${ARTIFACT_DIR}/clusterobjectset-list.txt" 2>/dev/null || true
+        collect_required_resource_inventory "exit" || log "WARNING: Failed to collect required-resource inventory"
+        collect_crd_ownership "exit" || log "WARNING: Failed to collect CRD ownership diagnostics"
+        collect_hive_sync_state || log "WARNING: Failed to collect Hive synchronization diagnostics"
     fi
 }
 
-trap 'collect_operator_logs; CHILDREN=$(jobs -p); if test -n "${CHILDREN}"; then kill ${CHILDREN} && wait; fi' TERM EXIT
+on_exit() {
+    local original_status="$1"
+    local children
 
-log(){
-    echo -e "\033[1m$(date "+%d-%m-%YT%H:%M:%S") " "${*}\033[0m" >&2
+    trap - EXIT TERM
+    set +o errexit
+    collect_operator_logs || printf 'WARNING: Failed to collect operator diagnostics\n' >&2
+    children=$(jobs -p)
+    if [[ -n "${children}" ]]; then
+        # shellcheck disable=SC2086
+        kill ${children} 2>/dev/null || true
+        wait 2>/dev/null || true
+    fi
+    exit "${original_status}"
 }
+
+if [[ "${ROSA_OPERATOR_INSTALL_TEST_MODE:-}" == "true" ]]; then
+    return 0
+fi
+
+trap 'exit 143' TERM
+trap 'on_exit "$?"' EXIT
 
 # Use shared kubeconfig from provision step if available
 if [[ -n "${SHARED_DIR:-}" && -f "${SHARED_DIR}/kubeconfig" ]]; then
@@ -156,7 +538,7 @@ if [[ -s /tmp/ci-registry-creds.json ]]; then
             log "ERROR: PKO readiness could not be verified — no ClusterPackage condition was updated after restart baseline ${PKO_RESTART_BASELINE}"
             log "ERROR: PKO controllers may not be reconciling. Check PKO pod logs for errors."
             for cp in ${EXISTING_CPS}; do
-                oc get clusterpackage "${cp}" -o yaml 2>/dev/null || true
+                clusterpackage_diagnostic "${cp}" || true
             done
             exit 1
         fi
@@ -207,6 +589,9 @@ fi
 # enables CR restoration.
 CR_BACKUP_DIR="/tmp/operator-cr-backup"
 mkdir -p "${CR_BACKUP_DIR}"
+REQUIRED_CR_BACKUP_DIR="${SHARED_DIR}/operator-required-cr-backups"
+rm -rf "${REQUIRED_CR_BACKUP_DIR}"
+mkdir -m 0700 "${REQUIRED_CR_BACKUP_DIR}"
 PREEXISTING_CRDS_FILE="${SHARED_DIR}/operator-preexisting-crds"
 : > "${PREEXISTING_CRDS_FILE}"
 if [[ -n "${OPERATOR_CRDS:-}" ]]; then
@@ -240,6 +625,51 @@ if [[ -n "${OPERATOR_CRDS:-}" ]]; then
         fi
     done
 fi
+
+# OPERATOR_REQUIRED_CRS is an explicit allow-list of CRs that must survive the
+# package swap. Back up each object that exists before the swap independently
+# of the Hive managed label: managed-cluster-config resources such as the
+# dedicated-admins SubjectPermission intentionally do not carry that label.
+if [[ -n "${OPERATOR_REQUIRED_CRS:-}" ]]; then
+    REQUIRED_BACKUP_INDEX=0
+    IFS=',' read -ra REQUIRED_LIST <<< "${OPERATOR_REQUIRED_CRS}"
+    for entry in "${REQUIRED_LIST[@]}"; do
+        entry=$(echo "${entry}" | xargs)
+        [[ -z "${entry}" ]] && continue
+        if ! parse_required_cr_entry "${entry}"; then
+            log "ERROR: Invalid OPERATOR_REQUIRED_CRS entry: ${entry}"
+            exit 1
+        fi
+
+        REQUIRED_NAMESPACE_ARGS=()
+        if [[ -n "${REQUIRED_CR_NAMESPACE}" ]]; then
+            REQUIRED_NAMESPACE_ARGS=(-n "${REQUIRED_CR_NAMESPACE}")
+        fi
+
+        log "Backing up required CR if pre-existing: ${REQUIRED_CR_NAME} (${REQUIRED_RESOURCE_TYPE})"
+        if ! REQUIRED_CR_JSON=$(oc get "${REQUIRED_RESOURCE_TYPE}" "${REQUIRED_CR_NAME}" \
+            "${REQUIRED_NAMESPACE_ARGS[@]}" --ignore-not-found -o json 2>/dev/null); then
+            log "ERROR: Failed to inspect required CR ${REQUIRED_CR_NAME} before ClusterPackage swap"
+            exit 1
+        fi
+        if [[ -z "${REQUIRED_CR_JSON}" ]]; then
+            log "  Required CR ${REQUIRED_CR_NAME} did not exist before the swap; no backup created"
+            continue
+        fi
+
+        REQUIRED_BACKUP_FILE="${REQUIRED_CR_BACKUP_DIR}/${REQUIRED_BACKUP_INDEX}.json"
+        if ! printf '%s\n' "${REQUIRED_CR_JSON}" | write_required_cr_backup "${REQUIRED_BACKUP_FILE}"; then
+            rm -f "${REQUIRED_BACKUP_FILE}"
+            log "ERROR: Failed to sanitize backup for required CR ${REQUIRED_CR_NAME}"
+            exit 1
+        fi
+        log "  Backed up required CR ${REQUIRED_CR_NAME}"
+        REQUIRED_BACKUP_INDEX=$((REQUIRED_BACKUP_INDEX + 1))
+    done
+fi
+
+collect_required_resource_inventory "before-swap" || log "WARNING: Failed to collect required-resource inventory"
+collect_crd_ownership "before-swap" || log "WARNING: Failed to collect CRD ownership diagnostics"
 
 # Back up the production ClusterPackage before deleting it.
 # cleanup will restore it so the cluster is not returned to the pool
@@ -299,12 +729,8 @@ for package_name in "${PACKAGES_TO_PAUSE[@]}"; do
             # Collect diagnostics before exiting so the build-log and
             # artifacts explain WHY the pause timed out.
             log "Collecting pause-timeout diagnostics for ${package_name}..."
-            oc get clusterpackage "${package_name}" -o yaml \
-                > "${ARTIFACT_DIR}/clusterpackage-${package_name}-dump.yaml" 2>/dev/null || true
-            log "ClusterPackage ${package_name} status conditions:"
-            oc get clusterpackage "${package_name}" \
-                -o jsonpath='{.status.conditions}' 2>/dev/null || true
-            echo ""  # newline after jsonpath output
+            write_clusterpackage_diagnostic "${package_name}" \
+                "${ARTIFACT_DIR}/clusterpackage-${package_name}-diagnostic.json" || true
             oc get pods -n openshift-package-operator -o wide \
                 > "${ARTIFACT_DIR}/pko-pods-on-pause-timeout.txt" 2>/dev/null || true
             exit 1
@@ -455,7 +881,7 @@ for i in $(seq 1 30); do
         log "  ClusterPackage ${CLUSTER_PACKAGE_NAME} phase: ${CP_PHASE} (attempt ${i}/30)"
         if [[ "${CP_PHASE}" == "Invalid" || "${CP_PHASE}" == *"Error"* ]]; then
             log "ERROR: ClusterPackage ${CLUSTER_PACKAGE_NAME} has terminal phase: ${CP_PHASE}"
-            oc get clusterpackage "${CLUSTER_PACKAGE_NAME}" -o yaml 2>/dev/null || true
+            clusterpackage_diagnostic "${CLUSTER_PACKAGE_NAME}" || true
             oc get clusterobjectset -o wide 2>/dev/null || true
             exit 1
         fi
@@ -464,7 +890,7 @@ for i in $(seq 1 30); do
     fi
     if [[ $i -eq 30 ]]; then
         log "ERROR: Deployment ${OPERATOR_DEPLOYMENT_NAME} not found after 5 minutes"
-        oc get clusterpackage "${CLUSTER_PACKAGE_NAME}" -o yaml || true
+        clusterpackage_diagnostic "${CLUSTER_PACKAGE_NAME}" || true
         oc get clusterobjectset -o wide 2>/dev/null | grep "${OPERATOR_NAME}" || true
         exit 1
     fi
@@ -555,6 +981,9 @@ if [[ -n "${OPERATOR_CRDS:-}" ]]; then
     done
 fi
 
+collect_required_resource_inventory "after-swap" || log "WARNING: Failed to collect required-resource inventory"
+collect_crd_ownership "after-swap" || log "WARNING: Failed to collect CRD ownership diagnostics"
+
 # Restore backed-up Hive-managed CR instances (belt-and-suspenders).
 # These were exported as individual JSON objects; wrap in a list for oc apply.
 for backup in "${CR_BACKUP_DIR}"/*.json; do
@@ -569,6 +998,14 @@ for backup in "${CR_BACKUP_DIR}"/*.json; do
         fi
     fi
 done
+
+# Restore required CRs that existed before the package swap. This is separate
+# from the Hive-labelled backup above because some managed-cluster-config
+# resources are deliberately bare. A restore failure is fatal and the
+# required-CR existence gate below remains unchanged.
+if ! restore_required_cr_backups; then
+    exit 1
+fi
 
 # ──────────────────────────────────────────────────────────────────────
 # Post-restore handoff gate: verify required CRs exist.
@@ -659,3 +1096,7 @@ if [[ -n "${OPERATOR_WAIT_DEPLOYMENTS:-}" ]]; then
         fi
     done
 fi
+
+# The install is fully handed off only after every fatal readiness gate has
+# passed. Until then cleanup needs these backups to recover from a later error.
+rm -rf "${REQUIRED_CR_BACKUP_DIR}"

@@ -50,7 +50,12 @@ ref:
         routemonitors.monitoring.openshift.io/console/openshift-route-monitor-operator
         clusterurlmonitors.monitoring.openshift.io/api/openshift-route-monitor-operator
 
-      After CRDs are established and backed-up CRs are restored, the step
+      Any listed object that exists before the ClusterPackage swap is backed
+      up in a restricted SHARED_DIR location and restored independently of
+      the hive.openshift.io/managed label. Non-Package-Operator owner
+      references are preserved. Cleanup can idempotently finish restoration
+      after an interrupted or failed package swap.
+      After CRDs are established and backups are restored, the step still
       verifies each entry exists. If a CR is missing, it polls for up to 120s
       (allowing Hive SyncSet resync), then hard-fails rather than handing off
       to e2e tests that would time out with a cryptic error.
@@ -60,3 +65,10 @@ ref:
     CRDs to avoid PKO adoption conflicts on managed clusters. Creates the
     test namespace, creates the ClusterPackage CR, and waits for the operator
     deployment to be available. Safe on ephemeral clusters only.
+
+    Diagnostic artifacts include sanitized required-resource inventories,
+    selected CRD ownership metadata before and after the package swap, and
+    filtered OCM SyncSet and ClusterSync state. CRD metadata uses an exact
+    allowlist (instance/managed labels and revision annotation); package
+    configuration, SyncSet resources, and other payloads are never written
+    to artifacts.

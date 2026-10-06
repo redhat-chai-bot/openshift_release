@@ -8,6 +8,71 @@ log(){
     echo -e "\033[1m$(date "+%d-%m-%YT%H:%M:%S") " "${*}\033[0m" >&2
 }
 
+restore_required_cr_backups() {
+    local backup
+    local owner_references
+    local restore_kind
+    local restore_name
+    local attempt
+    local restored
+    local attempts="${REQUIRED_CR_RESTORE_ATTEMPTS:-24}"
+    local retry_seconds="${REQUIRED_CR_RESTORE_RETRY_SECONDS:-5}"
+
+    [[ -d "${REQUIRED_CR_BACKUP_DIR}" ]] || return 0
+    for backup in "${REQUIRED_CR_BACKUP_DIR}"/*.json; do
+        [[ -f "${backup}" ]] || continue
+        if ! restore_kind=$(jq -er '.kind' "${backup}") \
+            || ! restore_name=$(jq -er '.metadata.name' "${backup}") \
+            || ! owner_references=$(jq -c '.metadata.ownerReferences // []' "${backup}"); then
+            log "ERROR: Required-CR backup is malformed: $(basename "${backup}")"
+            return 1
+        fi
+
+        log "Restoring pre-existing required CR ${restore_kind}/${restore_name}"
+        restored=false
+        for attempt in $(seq 1 "${attempts}"); do
+            if oc apply -f "${backup}" >/dev/null 2>&1 \
+                && oc patch -f "${backup}" --type merge \
+                    -p '{"metadata":{"ownerReferences":'"${owner_references}"'}}' >/dev/null 2>&1; then
+                restored=true
+                break
+            fi
+            if [[ "${attempt}" -lt "${attempts}" ]]; then
+                sleep "${retry_seconds}"
+            fi
+        done
+        if [[ "${restored}" != "true" ]]; then
+            log "ERROR: Failed to restore required CR ${restore_kind}/${restore_name} after ${attempts} attempts"
+            return 1
+        fi
+        rm -f "${backup}"
+        log "Required CR ${restore_kind}/${restore_name} restored"
+    done
+    rmdir "${REQUIRED_CR_BACKUP_DIR}" 2>/dev/null || true
+}
+
+cleanup_required_cr_backups_on_exit() {
+    local original_status="$1"
+    local restore_status=0
+
+    trap - EXIT
+    set +o errexit
+    if [[ -d "${REQUIRED_CR_BACKUP_DIR}" ]]; then
+        restore_required_cr_backups || restore_status=$?
+        # SHARED_DIR is not an artifact directory, but these files can contain
+        # complete resource payloads and must never outlive cleanup.
+        rm -rf "${REQUIRED_CR_BACKUP_DIR}"
+    fi
+    if [[ "${original_status}" -eq 0 && "${restore_status}" -ne 0 ]]; then
+        original_status="${restore_status}"
+    fi
+    exit "${original_status}"
+}
+
+if [[ "${ROSA_OPERATOR_CLEANUP_TEST_MODE:-}" == "true" ]]; then
+    return 0
+fi
+
 if [[ -n "${SHARED_DIR:-}" && -f "${SHARED_DIR}/kubeconfig" ]]; then
     export KUBECONFIG="${SHARED_DIR}/kubeconfig"
 fi
@@ -19,6 +84,10 @@ if [[ -n "${SHARED_DIR:-}" ]]; then
     CLUSTER_PACKAGE_NAME=$(cat "${SHARED_DIR}/operator-e2e-clusterpackage" 2>/dev/null || true)
     OPERATOR_NAMESPACE=$(cat "${SHARED_DIR}/operator-e2e-namespace" 2>/dev/null || true)
 fi
+
+REQUIRED_CR_BACKUP_DIR="${SHARED_DIR}/operator-required-cr-backups"
+PROD_CP_BACKUP="${SHARED_DIR}/production-clusterpackage.yaml"
+trap 'cleanup_required_cr_backups_on_exit "$?"' EXIT
 
 # Fallback for MC mode where install step doesn't run
 if [[ -z "${OPERATOR_NAMESPACE}" && -n "${OPERATOR_NAME:-}" ]]; then
@@ -48,13 +117,16 @@ fi
 
 if [[ -z "${CLUSTER_PACKAGE_NAME}" ]]; then
     log "No ClusterPackage to clean up"
+    if ! restore_required_cr_backups; then
+        exit 1
+    fi
+    rm -f "${PROD_CP_BACKUP}"
     exit 0
 fi
 
 log "Cleaning up test operator resources"
 
 PREEXISTING_CRDS_FILE="${SHARED_DIR}/operator-preexisting-crds"
-PROD_CP_BACKUP="${SHARED_DIR}/production-clusterpackage.yaml"
 crd_was_preexisting() {
     grep -Fqx -- "$1" "${PREEXISTING_CRDS_FILE}" 2>/dev/null
 }
@@ -177,11 +249,19 @@ if [[ "${CP_DELETED}" == "true" && -n "${OPERATOR_NAME:-}" ]]; then
     if [[ -f "${PROD_CP_BACKUP}" ]]; then
         log "Restoring production ClusterPackage ${OPERATOR_NAME} from backup"
         oc apply -f "${PROD_CP_BACKUP}"
+        rm -f "${PROD_CP_BACKUP}"
         PRODUCTION_CP_RESTORED=true
         log "Production ClusterPackage ${OPERATOR_NAME} restored"
     else
         log "No production ClusterPackage existed before the test; skipping production restore"
     fi
+fi
+
+# Required CRs may have been deleted at any point after the production package
+# swap began. Applying their protected SHARED_DIR backups is idempotent, and
+# retries allow time for the restored production CRDs to become served.
+if ! restore_required_cr_backups; then
+    exit 1
 fi
 
 # Wait for the production operator to reconcile after cleanup.
