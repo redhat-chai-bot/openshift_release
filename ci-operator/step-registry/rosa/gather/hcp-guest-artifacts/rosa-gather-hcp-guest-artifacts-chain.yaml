@@ -2,7 +2,7 @@ chain:
   as: rosa-gather-hcp-guest-artifacts
   env:
   - name: MUST_GATHER_KEEP_UNPACKED
-    default: "true"
+    default: "false"
   steps:
   - ref: rosa-gather-guest-kubeconfig
   - ref: gather-must-gather
@@ -13,8 +13,7 @@ chain:
     - rosa-gather-guest-kubeconfig: export guest kubeconfig to SHARED_DIR
     - gather-must-gather / gather-extra: standard OCP guest collection
       (pod logs including --previous, node journals, Multus, must-gather).
-      MUST_GATHER_KEEP_UNPACKED=true so Prow censors matching must-gather
-      files instead of replacing must-gather.tar.gz wholesale.
+      Must-gather remains packed as must-gather.tar.gz for artifact collection.
     - rosa-e2e-ocm-fvt-clean: ocmtest --justClean after gather
 
     Jobs that use this chain MUST set OCM_FVT_DEFER_CLEAN=true so the test step
