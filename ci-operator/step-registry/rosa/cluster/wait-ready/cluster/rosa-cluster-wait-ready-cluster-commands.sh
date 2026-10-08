@@ -15,6 +15,7 @@ CLUSTER_TIMEOUT=${CLUSTER_TIMEOUT}
 STALL_TIMEOUT=${STALL_TIMEOUT:-3600}
 PROVISIONER_LAUNCH_TIMEOUT=${PROVISIONER_LAUNCH_TIMEOUT:-900}
 OCM_RECONCILIATION_TIMEOUT=${OCM_RECONCILIATION_TIMEOUT:-600}
+CLASSIC_SNAPSHOT_INTERVAL_SECONDS=300
 if [[ ! "${PROVISIONER_LAUNCH_TIMEOUT}" =~ ^[0-9]+$ ]]; then
   log "ERROR: PROVISIONER_LAUNCH_TIMEOUT must be a non-negative integer, got '${PROVISIONER_LAUNCH_TIMEOUT}'. Using default 900."
   PROVISIONER_LAUNCH_TIMEOUT=900
@@ -25,24 +26,10 @@ if [[ ! "${OCM_RECONCILIATION_TIMEOUT}" =~ ^[0-9]+$ ]]; then
 fi
 CLUSTER_ID=$(cat "${SHARED_DIR}/cluster-id")
 
-capture_classic_resources() {
-    if [[ "${HOSTED_CP}" == "true" ]]; then
-        return
-    fi
-
-    local live_resources
+write_sanitized_account_claim() {
+    local live_resources="${1}"
+    local output_file="${2}"
     local account_claim
-    live_resources=$(mktemp)
-
-    if ! timeout 30 ocm get "/api/clusters_mgmt/v1/clusters/${CLUSTER_ID}/resources/live" \
-        > "${live_resources}" 2>/dev/null; then
-        log "Unable to retrieve live Classic cluster resources"
-        rm -f "${live_resources}"
-        return
-    fi
-
-    jq '.resources.cluster_deployment' "${live_resources}" \
-        > "${ARTIFACT_DIR}/cluster-deployment.json" 2>/dev/null || true
 
     # The live-resource API returns each resource as a JSON-encoded string. Keep only
     # the AccountClaim fields needed for diagnosing AAO reconciliation. In particular,
@@ -66,17 +53,136 @@ capture_classic_resources() {
                 aws: .spec.aws
             },
             status: .status
-        }' <<< "${account_claim}" > "${ARTIFACT_DIR}/aws-account-claim.json" 2>/dev/null; then
-            log "Saved sanitized AWS AccountClaim to ${ARTIFACT_DIR}/aws-account-claim.json"
+        }' <<< "${account_claim}" > "${output_file}" 2>/dev/null; then
+            log "Saved sanitized AWS AccountClaim to ${output_file}"
         else
             log "Unable to parse the AWS AccountClaim returned by the live-resource API"
-            rm -f "${ARTIFACT_DIR}/aws-account-claim.json"
+            rm -f "${output_file}"
         fi
     else
         log "AWS AccountClaim is not available in the live Classic cluster resources"
     fi
+}
+
+capture_classic_resources() {
+    if [[ "${HOSTED_CP}" == "true" ]]; then
+        return
+    fi
+
+    local live_resources
+    live_resources=$(mktemp)
+
+    if ! timeout 30 ocm get "/api/clusters_mgmt/v1/clusters/${CLUSTER_ID}/resources/live" \
+        > "${live_resources}" 2>/dev/null; then
+        log "Unable to retrieve live Classic cluster resources"
+        rm -f "${live_resources}"
+        return
+    fi
+
+    jq '.resources.cluster_deployment' "${live_resources}" \
+        > "${ARTIFACT_DIR}/cluster-deployment.json" 2>/dev/null || true
+
+    write_sanitized_account_claim "${live_resources}" "${ARTIFACT_DIR}/aws-account-claim.json"
 
     rm -f "${live_resources}"
+}
+
+capture_classic_state_snapshot() {
+    local cluster_info_json="${1}"
+    local captured_at
+    local snapshot_dir
+    local snapshot_ts
+    local live_resources
+    local cluster_deployment
+
+    snapshot_ts=$(date -u "+%Y%m%dT%H%M%SZ")
+    captured_at=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+    snapshot_dir="${ARTIFACT_DIR}/classic-resource-snapshots/${snapshot_ts}"
+    if ! mkdir -p "${snapshot_dir}"; then
+        log "Unable to create Classic resource snapshot directory"
+        return 0
+    fi
+
+    # Keep the OCM snapshot intentionally small. Never persist the free-text
+    # description: it can contain credentials and infrastructure identifiers.
+    # Emit only explicitly allowlisted diagnostic classifications.
+    if ! jq --arg captured_at "${captured_at}" '
+        # BEGIN OCM_STATE_SNAPSHOT_FILTER
+        {
+            captured_at: $captured_at,
+            state: (.state // null),
+            description_classification: (
+                (.status.description? // null) as $description
+                | if (($description | type) == "string") then
+                    if ($description | test("(^|[^[:alnum:]_])ClusterImageSetNotFound([^[:alnum:]_]|$)"; "i")) then
+                        "ClusterImageSetNotFound"
+                    else
+                        null
+                    end
+                else
+                    null
+                end
+            ),
+            infra_id_set: ((.infra_id // "") != "")
+        }
+        # END OCM_STATE_SNAPSHOT_FILTER
+    ' "${cluster_info_json}" > "${snapshot_dir}/ocm-state.json" 2>/dev/null; then
+        log "Unable to write the sanitized OCM state snapshot"
+        rm -f "${snapshot_dir}/ocm-state.json"
+    fi
+
+    if ! live_resources=$(mktemp); then
+        log "Unable to create temporary storage for the Classic resource snapshot"
+        return 0
+    fi
+    if ! timeout 30 ocm get "/api/clusters_mgmt/v1/clusters/${CLUSTER_ID}/resources/live" \
+        > "${live_resources}" 2>/dev/null; then
+        log "Unable to retrieve live Classic cluster resources for periodic snapshot"
+        rm -f "${live_resources}"
+        return 0
+    fi
+
+    cluster_deployment=$(jq -r '.resources.cluster_deployment // empty' "${live_resources}" 2>/dev/null || true)
+    if [[ -n "${cluster_deployment}" ]]; then
+        # Condition messages can contain infrastructure identifiers. The condition
+        # type, state, reason, and transition times are sufficient for diagnosing
+        # failures such as ClusterImageSetNotFound without publishing those values.
+        if ! jq '{
+            apiVersion: .apiVersion,
+            kind: .kind,
+            metadata: {
+                creationTimestamp: .metadata.creationTimestamp,
+                generation: .metadata.generation
+            },
+            spec: {
+                clusterImageSetRef: {
+                    name: .spec.clusterImageSetRef.name
+                }
+            },
+            status: {
+                installed: .status.installed,
+                conditions: [
+                    .status.conditions[]? | {
+                        type: .type,
+                        status: .status,
+                        reason: .reason,
+                        lastProbeTime: .lastProbeTime,
+                        lastTransitionTime: .lastTransitionTime
+                    }
+                ]
+            }
+        }' <<< "${cluster_deployment}" > "${snapshot_dir}/cluster-deployment.json" 2>/dev/null; then
+            log "Unable to parse the ClusterDeployment returned by the live-resource API"
+            rm -f "${snapshot_dir}/cluster-deployment.json"
+        fi
+    else
+        log "ClusterDeployment is not available in the live Classic cluster resources"
+    fi
+
+    write_sanitized_account_claim "${live_resources}" "${snapshot_dir}/aws-account-claim.json" || true
+    rm -f "${live_resources}"
+    log "Saved periodic Classic resource snapshot to ${snapshot_dir}"
+    return 0
 }
 
 capture_diagnostics_on_crash() {
@@ -253,6 +359,7 @@ CLUSTER_PREVIOUS_STATE="claim"
 record_cluster "timers" "status" "claim"
 loop_count=0
 install_complete_seen_at=0
+last_classic_snapshot_at=0
 while true; do
   retry_cmd 3 10 rosa describe cluster -c "${CLUSTER_ID}" -o json > "${cluster_info_json}"
   CLUSTER_STATE=$(cat ${cluster_info_json} | jq -r '.state')
@@ -351,6 +458,14 @@ while true; do
             log "Waiting for OCM state reconciliation ($(( reconciliation_elapsed / 60 ))/$(( OCM_RECONCILIATION_TIMEOUT / 60 )) minutes)."
           fi
         fi
+      fi
+
+      # Preserve a time-based state history for Classic install stalls. Collection
+      # is bounded and best-effort so diagnostics never affect the wait result.
+      if [[ "${HOSTED_CP}" != "true" ]] && [[ "${CLUSTER_STATE}" == "installing" ]] \
+        && (( current_time - last_classic_snapshot_at >= CLASSIC_SNAPSHOT_INTERVAL_SECONDS )); then
+        last_classic_snapshot_at=${current_time}
+        capture_classic_state_snapshot "${cluster_info_json}" || true
       fi
 
       if [[ ${CLUSTER_STATE} == "installing" ]]; then
