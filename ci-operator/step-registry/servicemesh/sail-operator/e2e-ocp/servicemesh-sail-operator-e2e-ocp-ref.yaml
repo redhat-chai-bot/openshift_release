@@ -3,12 +3,8 @@ ref:
   from: src
   resources:
     requests:
-      cpu: '1'
-      memory: 500Mi
-  credentials:
-  - mount_path: /tmp/secrets
-    group: quay
-    collection: openshift-service-mesh
+      cpu: '2'
+      memory: 4Gi
   timeout: 3h0m0s
   commands: servicemesh-sail-operator-e2e-ocp-commands.sh
   env:
@@ -25,14 +21,16 @@ ref:
     default: ""
     documentation: |-
       Optional environment variable to set VERSIONS_YAML_FILE. For 4.19 use 'export VERSIONS_YAML_FILE=versions.yaml && ' to be prepended to the make command
+  - name: VERSIONS_YAML_FILE
+    default: "versions.yaml"
+    documentation: Versions configuration filename embedded in the prepared operator.
+  - name: VERSIONS_YAML_DIR
+    default: "pkg/istioversion"
+    documentation: Directory containing the versions configuration file.
   - name: OLM
     default: "true"
     documentation: |-
       Set to "false" to avoid creating and deploying the operator using the OLM bundle. By default, the operator will be created and deployed using the OLM bundle. Setting to "false" will cause the operator to be deployed using helm after building the operator image.
-  - name: E2E_COMMAND
-    default: "make test.e2e.ocp"
-    documentation: |-
-      The make command to execute for e2e tests
   - name: EXPECTED_REGISTRY
     default: '^docker\.io|^gcr\.io|^registry\.istio\.io|^registry\.redhat\.io|^quay\.io'
     documentation: |-
@@ -53,5 +51,15 @@ ref:
     default: ""
     documentation: |-
       Optional Ginkgo label filter expression to select/skip tests (e.g. "!tls-profile")
+  - name: FIPS_CLUSTER
+    default: "false"
+    documentation: Whether tests target a FIPS-enabled cluster.
+  - name: ISTIO_VERSIONS
+    default: ""
+    documentation: Optional Istio version selection passed through to Sail tooling.
   documentation: |-
-    Executes sail operator e2e tests (with default values against product operator (ossm operator)). Ensure that your pipeline has `maistra-builder` as the build root, since `from: src` is used here and the script expects the sail repository to be in the root directory.
+    Executes Sail Operator Ginkgo tests directly in the from:src CI container using
+    the kubeconfig and validated preparation state in SHARED_DIR. The preparation
+    step must run after copy-src and before this step. The src image must provide
+    bash, make, git, Go, oc or kubectl, jq, yq, curl, Helm, operator-sdk, and
+    istioctl because the target deliberately runs without Sail's container wrapper.

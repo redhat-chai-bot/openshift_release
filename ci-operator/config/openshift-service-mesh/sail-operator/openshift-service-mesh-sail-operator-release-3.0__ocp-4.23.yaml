@@ -43,6 +43,7 @@ tests:
       XDG_CACHE_HOME: /tmp/cache
     test:
     - ref: servicemesh-sail-operator-copy-src
+    - ref: servicemesh-sail-operator-prepare
     - ref: servicemesh-sail-operator-e2e-ocp
     workflow: servicemesh-istio-e2e-profile
 zz_generated_metadata:

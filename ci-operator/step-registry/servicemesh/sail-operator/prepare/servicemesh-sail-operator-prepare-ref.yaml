@@ -1,0 +1,56 @@
+ref:
+  as: servicemesh-sail-operator-prepare
+  from: cli
+  commands: servicemesh-sail-operator-prepare-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  timeout: 1h0m0s
+  credentials:
+  - mount_path: /tmp/secrets
+    group: quay
+    collection: openshift-service-mesh
+  env:
+  - name: MAISTRA_NAMESPACE
+    default: "maistra-e2e-test"
+    documentation: Namespace containing the privileged builder pod.
+  - name: MAISTRA_SC_POD
+    default: "maistra-e2e-test-sc-pod"
+    documentation: Privileged builder pod used for image and bundle operations.
+  - name: VERSIONS_YAML_CONFIG
+    default: ""
+    documentation: Optional documented VERSIONS_YAML_FILE export used by older jobs.
+  - name: VERSIONS_YAML_FILE
+    default: "versions.yaml"
+    documentation: Versions configuration filename embedded in the operator image.
+  - name: VERSIONS_YAML_DIR
+    default: "pkg/istioversion"
+    documentation: Directory containing the versions configuration file.
+  - name: OLM
+    default: "true"
+    documentation: Use OLM when true and Helm when false.
+  - name: EXPECTED_REGISTRY
+    default: '^docker\.io|^gcr\.io|^registry\.istio\.io|^registry\.redhat\.io|^quay\.io'
+    documentation: Registries accepted by operand image tests.
+  - name: CI
+    default: "true"
+    documentation: Enables CI-safe image tagging.
+  - name: PR_NUMBER
+    default: ""
+    documentation: Pull request number used in image tags when available.
+  - name: HUB
+    default: "quay.io/sail-dev"
+    documentation: Registry hub used for the operator and bundle images.
+  - name: OCP_ARCH
+    default: ""
+    documentation: Cluster architecture; inferred from the builder pod when empty.
+  - name: FIPS_CLUSTER
+    default: "false"
+    documentation: Whether tests target a FIPS-enabled cluster.
+  - name: ISTIO_VERSIONS
+    default: ""
+    documentation: Optional Istio version selection passed through to Sail tooling.
+  documentation: |-
+    Builds, pushes, and deploys Sail Operator in the privileged builder pod without
+    running Ginkgo. Writes a versioned JSON handoff to SHARED_DIR for the test step.
