@@ -102,12 +102,23 @@ function collect_operator_diagnostics() {
   fi
 }
 
-# Return pod lines in CrashLoopBackOff state for an operator namespace
+# Return tab-separated display text and identity-rich comparison state for CrashLoopBackOff containers
 function check_crashloop_pods() {
   local operator=$1
   local ns
   ns=$(infer_operator_namespace "${operator}")
-  oc get pods -n "${ns}" --no-headers 2>/dev/null | grep -i "CrashLoopBackOff" || true
+  oc get pods -n "${ns}" -o json 2>/dev/null | jq -r '
+    .items[]
+    | .metadata.name as $pod
+    | .metadata.uid as $uid
+    | ((.status.initContainerStatuses[]? | ["init", .]),
+       (.status.containerStatuses[]? | ["container", .]),
+       (.status.ephemeralContainerStatuses[]? | ["ephemeral", .])) as $entry
+    | $entry[0] as $kind
+    | $entry[1]
+    | select(.state.waiting.reason == "CrashLoopBackOff")
+    | "\($pod)/\(.name)=\(.restartCount)\t\($uid)/\($kind)/\(.name)=\(.restartCount)"
+  ' | sort || true
 }
 
 # ---------------------------------------------------------------------------
@@ -138,7 +149,7 @@ function wait_for_operator_condition() {
   local stall_start_time=${start_time}
   local iteration=0
   local crashloop_consecutive=0
-  local previous_crashloop_operators=""
+  local previous_crashloop_state=""
 
   log "Waiting for cluster operators: ${condition}=${desired_value} (timeout: $(( timeout / 60 ))m, poll: ${poll_interval}s)"
 
@@ -245,6 +256,7 @@ function wait_for_operator_condition() {
 
     # ---- Early exit: CrashLoopBackOff with no restart progress ----
     local crashloop_operators=""
+    local crashloop_state=""
     while IFS= read -r op; do
       [[ -z "${op}" ]] && continue
       local clb
@@ -253,17 +265,22 @@ function wait_for_operator_condition() {
         crashloop_operators="${crashloop_operators}${op},"
         log "  WARNING: CrashLoopBackOff detected in operator '${op}':"
         while IFS= read -r pod_line; do
-          log "    ${pod_line}"
+          [[ -z "${pod_line}" ]] && continue
+          local pod_display="" pod_state=""
+          IFS=$'\t' read -r pod_display pod_state <<< "${pod_line}"
+          crashloop_state+="${op}:${pod_state}"$'\n'
+          log "    ${pod_display}"
         done <<< "${clb}"
       fi
     done <<< "${not_ready_operators}"
 
     if [[ -n "${crashloop_operators}" ]]; then
-      if [[ "${crashloop_operators}" == "${previous_crashloop_operators}" ]]; then
+      crashloop_state=${crashloop_state%$'\n'}
+      if [[ "${crashloop_state}" == "${previous_crashloop_state}" ]]; then
         crashloop_consecutive=$((crashloop_consecutive + 1))
       else
         crashloop_consecutive=1
-        previous_crashloop_operators="${crashloop_operators}"
+        previous_crashloop_state="${crashloop_state}"
       fi
 
       if (( crashloop_consecutive >= 2 )); then
@@ -278,7 +295,7 @@ function wait_for_operator_condition() {
       fi
     else
       crashloop_consecutive=0
-      previous_crashloop_operators=""
+      previous_crashloop_state=""
     fi
 
     # ---- Periodic artifact snapshots (every 5 iterations) ----
