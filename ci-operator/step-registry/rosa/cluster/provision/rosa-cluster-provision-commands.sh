@@ -872,9 +872,49 @@ fi
 echo "$cmdout"
 CLUSTER_INFO_WITHOUT_MASK="$(mktemp)"
 
+# Return 0 with the ID when found, 1 for a confirmed absence, and 2 when the
+# lookup itself failed or returned an unexpected response.
+get_cluster_id_by_name() {
+  local response parsed_response cluster_id
+
+  if ! response=$(ocm get /api/clusters_mgmt/v1/clusters --parameter search="name = '${CLUSTER_NAME}'" 2>/dev/null); then
+    return 2
+  fi
+  if ! parsed_response=$(jq -ces '
+    if length == 1
+      and (.[0] | type) == "object"
+      and (.[0].items | type) == "array"
+    then .[0]
+    else error("expected exactly one response object with an items array")
+    end
+  ' <<< "${response}" 2>/dev/null); then
+    return 2
+  fi
+
+  if jq -e '.items | length == 0' <<< "${parsed_response}" >/dev/null; then
+    return 1
+  fi
+
+  if ! cluster_id=$(jq -er --arg expected_name "${CLUSTER_NAME}" '
+    select((.items | length) == 1)
+    | .items[0]
+    | select(type == "object")
+    | select(.name == $expected_name)
+    | select((.id | type) == "string")
+    | .id
+    | select(length == 32 and test("^[0-9a-z]+$"))
+  ' <<< "${parsed_response}" 2>/dev/null); then
+    return 2
+  fi
+
+  echo "${cluster_id}"
+}
+
 # Retry logic for command execution
 retry_count=0
 max_retries=3
+reconciliation_max_attempts=3
+reconciliation_delay_seconds=30
 exit_code=1
 
 while [ $retry_count -lt $max_retries ]; do
@@ -902,6 +942,45 @@ while [ $retry_count -lt $max_retries ]; do
     if [ $retry_count -lt $max_retries ]; then
       echo "Sleeping for 10 minutes before retry..."
       sleep 600  # 10 minutes = 600 seconds
+    else
+      echo "Max retries reached. Continuing with last attempt result."
+    fi
+  elif [[ "$cmd_output" == *"CLUSTERS-MGMT-500"* && "$cmd_output" == *"driver: bad connection"* ]]; then
+    echo "$cmd_output"
+    echo "Transient cluster service database error detected; reconciling cluster state before retrying"
+
+    lookup_result=2
+    existing_cluster_id=""
+    for lookup_attempt in $(seq 1 "${reconciliation_max_attempts}"); do
+      if existing_cluster_id=$(get_cluster_id_by_name); then
+        lookup_result=0
+        break
+      else
+        lookup_result=$?
+      fi
+
+      if [[ ${lookup_result} -eq 2 ]]; then
+        echo "Cluster lookup failed; refusing to retry cluster creation without knowing backend state"
+        break
+      fi
+      if [[ ${lookup_attempt} -lt ${reconciliation_max_attempts} ]]; then
+        echo "Cluster is not visible yet (reconciliation attempt ${lookup_attempt}/${reconciliation_max_attempts}); checking again in ${reconciliation_delay_seconds} seconds..."
+        sleep "${reconciliation_delay_seconds}"
+      fi
+    done
+
+    if [[ ${lookup_result} -eq 0 ]]; then
+      echo "Cluster creation succeeded despite the failed response; found cluster ID ${existing_cluster_id}"
+      echo "ID: ${existing_cluster_id}" >> "${CLUSTER_INFO_WITHOUT_MASK}"
+      exit_code=0
+      break
+    elif [[ ${lookup_result} -eq 2 ]]; then
+      break
+    fi
+
+    retry_count=$((retry_count + 1))
+    if [[ ${retry_count} -lt ${max_retries} ]]; then
+      echo "Cluster absence confirmed by ${reconciliation_max_attempts} successful lookups; retrying cluster creation"
     else
       echo "Max retries reached. Continuing with last attempt result."
     fi
