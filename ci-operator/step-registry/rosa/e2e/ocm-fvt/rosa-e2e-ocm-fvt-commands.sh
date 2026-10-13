@@ -428,16 +428,28 @@ if [[ ! -s "${SHARED_DIR}/cluster-id" ]]; then
   fi
 fi
 
-if [[ ! -s "${SHARED_DIR}/kubeconfig" ]]; then
+guest_kubeconfig=""
+selected_cluster_id="$(head -1 "${SHARED_DIR}/cluster-id" 2>/dev/null | tr -d '[:space:]')" || selected_cluster_id=""
+if [[ -n "${selected_cluster_id}" ]]; then
   while IFS= read -r -d '' kc; do
-    # Skip empty / scrubbed placeholders; real kubeconfigs are much larger.
-    if [[ -s "${kc}" ]] && grep -q 'apiVersion:' "${kc}" 2>/dev/null; then
-      cp "${kc}" "${SHARED_DIR}/kubeconfig"
-      chmod 0600 "${SHARED_DIR}/kubeconfig"
-      echo "Copied guest kubeconfig from ${kc} -> SHARED_DIR/kubeconfig"
+    if [[ "$(basename "${kc}")" == "${selected_cluster_id}.kubeconfig" && -s "${kc}" ]] && grep -q '^apiVersion:' "${kc}" 2>/dev/null; then
+      guest_kubeconfig="${kc}"
       break
     fi
-  done < <(find "${ocm_fvt_output}" -type f \( -name 'kubeconfig' -o -name '*.kubeconfig' \) -print0 2>/dev/null)
+  done < <(find "${ocm_fvt_output}/.datainfo/kube-configs" -type f -name '*.kubeconfig' -print0 2>/dev/null)
+fi
+
+if [[ -n "${guest_kubeconfig}" ]]; then
+  if cmp -s "${guest_kubeconfig}" "${SHARED_DIR}/kubeconfig" || cp "${guest_kubeconfig}" "${SHARED_DIR}/kubeconfig"; then
+    chmod 0600 "${SHARED_DIR}/kubeconfig" || echo "WARNING: could not restrict guest kubeconfig permissions"
+    echo "Published matching guest kubeconfig for post gather steps"
+  else
+    rm -f "${SHARED_DIR}/kubeconfig" || echo "WARNING: could not remove shared guest kubeconfig"
+    echo "WARNING: could not publish matching guest kubeconfig for post gather steps"
+  fi
+else
+  rm -f "${SHARED_DIR}/kubeconfig" || echo "WARNING: could not remove uncorrelated shared guest kubeconfig"
+  echo "WARNING: no matching usable guest kubeconfig for selected cluster; leaving guest kubeconfig absent"
 fi
 
 # Persist profile recording (.datainfo + */cluster.ini) for rosa-e2e-ocm-fvt-clean.
