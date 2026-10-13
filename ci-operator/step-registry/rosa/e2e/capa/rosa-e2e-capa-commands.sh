@@ -30,6 +30,47 @@ $WAS_TRACING && set -x || true
 
 # Clone rosa-hcp-e2e-test repository
 WORK_DIR=$(mktemp -d)
+collect_results() {
+  local results_dir="${WORK_DIR}/rosa-hcp-e2e-test/test-results"
+  local report destination collection_status=0
+  if [[ ! -d "${results_dir}" ]]; then
+    echo "No runner test-results directory to collect." >&2
+    return 0
+  fi
+
+  shopt -s nullglob
+  for report in "${results_dir}"/*/*.{json,html,xml}; do
+    [[ -f "${report}" ]] || continue
+    destination="${ARTIFACT_DIR}/test-results/$(basename "$(dirname "${report}")")"
+    if ! mkdir -p "${destination}"; then
+      collection_status=1
+      continue
+    fi
+    if [[ "${report}" == *.xml ]]; then
+      destination+="/junit-$(basename "${report}")"
+    else
+      destination+="/$(basename "${report}")"
+    fi
+    if ! cp "${report}" "${destination}"; then
+      echo "ERROR: failed to collect runner report ${report}" >&2
+      collection_status=1
+    fi
+  done
+  return "${collection_status}"
+}
+
+finish() {
+  local exit_code=$?
+  trap - EXIT
+  if ! collect_results; then
+    if [[ "${exit_code}" -eq 0 ]]; then
+      exit_code=1
+    fi
+  fi
+  exit "${exit_code}"
+}
+trap finish EXIT
+
 echo "Cloning ${ROSA_HCP_E2E_REPO} (branch: ${ROSA_HCP_E2E_BRANCH})..."
 git clone --depth=1 --branch "${ROSA_HCP_E2E_BRANCH}" "${ROSA_HCP_E2E_REPO}" "${WORK_DIR}/rosa-hcp-e2e-test"
 cd "${WORK_DIR}/rosa-hcp-e2e-test"
