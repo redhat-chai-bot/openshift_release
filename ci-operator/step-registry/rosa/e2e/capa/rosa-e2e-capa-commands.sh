@@ -108,6 +108,47 @@ if [[ -n "${CLUSTER_API_INSTALLER_REF:-}" ]]; then
 fi
 
 echo "Running rosa-hcp-e2e tests (name_prefix=${NAME_PREFIX})..."
+set +e
 "${PYTHON}" run-test-suite.py ${TEST_SUITE} --ai-agent "${EXTRA_VARS[@]}" 2>&1 | tee "${ARTIFACT_DIR}/rosa-hcp-e2e-test.log"
+pipeline_status=("${PIPESTATUS[@]}")
+set -e
+
+report_status=0
+if [[ -d test-results ]]; then
+  if cp -R test-results "${ARTIFACT_DIR}/"; then
+    shopt -s nullglob
+    junit_reports=("${ARTIFACT_DIR}"/test-results/*/test-run*.xml)
+    if [[ ${#junit_reports[@]} -eq 0 ]]; then
+      echo "WARNING: no dated JUnit reports found in test-results" >&2
+    fi
+    for report in "${junit_reports[@]}"; do
+      if mv "${report}" "${report%/*}/junit_${report##*/}"; then
+        :
+      else
+        report_status=$?
+        echo "ERROR: could not rename JUnit report ${report}" >&2
+      fi
+    done
+  else
+    report_status=$?
+    echo "ERROR: could not copy test-results to ${ARTIFACT_DIR}" >&2
+  fi
+else
+  echo "WARNING: test-results directory is missing; no reports to upload" >&2
+fi
+
+if [[ ${pipeline_status[1]} -ne 0 ]]; then
+  echo "ERROR: tee failed with exit code ${pipeline_status[1]}" >&2
+fi
+if [[ ${pipeline_status[0]} -ne 0 ]]; then
+  echo "ERROR: test runner failed with exit code ${pipeline_status[0]}" >&2
+  exit "${pipeline_status[0]}"
+fi
+if [[ ${pipeline_status[1]} -ne 0 ]]; then
+  exit "${pipeline_status[1]}"
+fi
+if [[ ${report_status} -ne 0 ]]; then
+  exit "${report_status}"
+fi
 
 echo "Tests complete. Results at ${ARTIFACT_DIR}/rosa-hcp-e2e-test.log"
