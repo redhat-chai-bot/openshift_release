@@ -1,4 +1,8 @@
 base_images:
+  python-validation:
+    name: python-validation
+    namespace: ci
+    tag: latest
   ship-status-component-monitor:
     name: component-monitor
     namespace: ship-status-dash
@@ -37,6 +41,12 @@ tests:
   container:
     from: src
   run_if_changed: ^(ci-operator/step-registry/hyperfleet/risk-scorer/|hack/hyperfleet/validate-risk-scorer-step\.sh).*
+- as: rosa-ocm-fvt-guest-kubeconfig
+  commands: python3 -m unittest discover -s hack/rosa-ocm-fvt -v
+  container:
+    clone: true
+    from: python-validation
+  run_if_changed: ^(ci-operator/step-registry/rosa/e2e/ocm-fvt/|hack/rosa-ocm-fvt/).*
 - as: ship-status-component-monitor-config
   commands: /app/component-monitor --validate-only --config-path=core-services/ship-status/component-monitor-config.yaml
     --kubeconfig-dir=/etc/kubeconfig
