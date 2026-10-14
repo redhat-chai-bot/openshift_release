@@ -4,6 +4,81 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+collect_resource_metadata() (
+    [[ -n "${ARTIFACT_DIR:-}" ]] || exit 0
+    local phase="$1" directory="${ARTIFACT_DIR}/operator-resource-metadata"
+    local entry resource name namespace response state error_code error_file
+    local -a crds required namespace_args
+    if ! mkdir -p "${directory}" 2>/dev/null; then
+        printf 'WARNING: Could not create resource metadata diagnostic directory\n' >&2
+        exit 0
+    fi
+    if ! error_file=$(mktemp 2>/dev/null); then
+        printf 'WARNING: Could not create resource metadata diagnostic scratch file\n' >&2
+        exit 0
+    fi
+    trap 'rm -f "${error_file}"' EXIT
+    IFS=',' read -ra crds <<< "${OPERATOR_CRDS:-}"
+    IFS=',' read -ra required <<< "${OPERATOR_REQUIRED_CRS:-}"
+    for entry in "${crds[@]}"; do
+        [[ -n "${entry//[[:space:]]/}" ]] && required+=("crd/${entry//[[:space:]]/}")
+    done
+    for entry in "${required[@]}"; do
+        entry="${entry//[[:space:]]/}"
+        [[ -n "${entry}" ]] || continue
+        resource="${entry%%/*}"
+        entry="${entry#*/}"
+        name="${entry%%/*}"
+        namespace=""
+        namespace_args=()
+        if [[ "${entry}" == */* ]]; then
+            namespace="${entry#*/}"
+            namespace_args=(-n "${namespace}")
+        fi
+        if [[ ! "${resource}" =~ ^[a-z0-9][a-z0-9.-]*$ ||
+              ! "${name}" =~ ^[a-z0-9][a-z0-9.-]*$ ||
+              ( -n "${namespace}" && ! "${namespace}" =~ ^[a-z0-9][a-z0-9.-]*$ ) ]]; then
+            printf '{"state":"collector_error","reason":"invalid_target"}\n'
+            continue
+        fi
+        state=present
+        error_code=0
+        if response=$(timeout --kill-after=5s 15s oc get "${resource}" "${name}" "${namespace_args[@]}" \
+            --ignore-not-found --request-timeout=10s -o json 2>"${error_file}"); then
+            [[ -n "${response}" ]] || state=missing
+        else
+            error_code=$?
+            state=read_error
+            if [[ "${error_code}" -eq 124 || "${error_code}" -eq 137 ]]; then
+                state=read_timeout
+            elif grep -qiE '\(Forbidden\)|\(Unauthorized\)' "${error_file}"; then
+                state=access_denied
+            fi
+            response=""
+        fi
+        if ! printf '%s' "${response}" | jq -cse \
+            --arg resource "${resource}" --arg name "${name}" --arg namespace "${namespace}" \
+            --arg state "${state}" --argjson exitCode "${error_code}" '
+            {resource: $resource, name: $name, namespace: $namespace,
+             state: $state, exitCode: $exitCode} +
+            (if $state == "present" then
+                if length != 1 or (.[0].metadata | type) != "object" then
+                    error("invalid metadata response")
+                else .[0] | {uid: .metadata.uid, deletionTimestamp: .metadata.deletionTimestamp,
+                    ownerReferences: [.metadata.ownerReferences[]? |
+                        {apiVersion, kind, name, uid, controller, blockOwnerDeletion}],
+                    hiveManaged: .metadata.labels["hive.openshift.io/managed"]} +
+                    (if $resource == "crd" then
+                        {conditions: [.status.conditions[]? | {type, status, reason}]}
+                     else {} end)
+                end
+             else {} end)' 2>/dev/null; then
+            printf '{"resource":"%s","name":"%s","namespace":"%s","state":"collector_error"}\n' \
+                "${resource}" "${name}" "${namespace}"
+        fi
+    done >> "${directory}/${phase}.jsonl"
+)
+
 collect_operator_logs() {
     local ns="${OPERATOR_NAMESPACE:-openshift-${OPERATOR_NAME:-unknown}}"
     if [[ -n "${ARTIFACT_DIR:-}" ]] && oc get namespace "${ns}" &>/dev/null; then
@@ -196,6 +271,8 @@ if [[ -s /tmp/ci-registry-creds.json ]]; then
 else
     log "WARNING: Could not get CI registry credentials, PKO may fail to pull images"
 fi
+
+collect_resource_metadata pre-swap || true
 
 # Save Hive/MCC-managed CR instances before removing the ClusterPackage.
 # On managed clusters, Hive SyncSets deploy CRs (RouteMonitors, etc.) that
@@ -570,6 +647,8 @@ for backup in "${CR_BACKUP_DIR}"/*.json; do
     fi
 done
 
+collect_resource_metadata post-restore || true
+
 # ──────────────────────────────────────────────────────────────────────
 # Post-restore handoff gate: verify required CRs exist.
 # ──────────────────────────────────────────────────────────────────────
@@ -621,6 +700,7 @@ if [[ -n "${OPERATOR_REQUIRED_CRS:-}" ]]; then
         done
 
         if [[ "${CR_FOUND}" != "true" ]]; then
+            collect_resource_metadata required-cr-timeout || true
             log "ERROR: Required CR ${CR_NAME} (${RESOURCE_TYPE})${NS_DISPLAY} not found after 120s"
             log "ERROR: This CR is expected to be deployed by Hive SyncSet. The ClusterPackage swap may have cascade-deleted it."
             log "ERROR: Check whether CRD ownerReferences were properly cleared before ClusterPackage deletion."
