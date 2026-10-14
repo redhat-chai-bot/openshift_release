@@ -84,7 +84,7 @@ set +x
 
 # Support both SSO client credentials and offline token patterns from
 # /usr/local/cs-qe-credentials (matching the backplane and gather-diagnostics
-# steps). Try SSO client credentials first, fall back to OCM token.
+# steps). Try SSO, then FVT backplane client credentials, then OCM token.
 CRED_DIR="/usr/local/cs-qe-credentials"
 SSO_CLIENT_ID=""
 SSO_CLIENT_SECRET=""
@@ -93,6 +93,12 @@ OCM_TOKEN=""
 if [[ -f "${CRED_DIR}/sso-client-id" && -f "${CRED_DIR}/sso-client-secret" ]]; then
   SSO_CLIENT_ID="$(cat "${CRED_DIR}/sso-client-id")"
   SSO_CLIENT_SECRET="$(cat "${CRED_DIR}/sso-client-secret")"
+fi
+
+if [[ ( -z "${SSO_CLIENT_ID}" || -z "${SSO_CLIENT_SECRET}" ) &&
+      -f "${CRED_DIR}/backplane_client_id" && -f "${CRED_DIR}/backplane_client_secret" ]]; then
+  SSO_CLIENT_ID="$(cat "${CRED_DIR}/backplane_client_id")"
+  SSO_CLIENT_SECRET="$(cat "${CRED_DIR}/backplane_client_secret")"
 fi
 
 if [[ -z "${OCM_TOKEN}" && -f "${CRED_DIR}/ocm-tokens" ]]; then
@@ -122,7 +128,7 @@ elif [[ -n "${OCM_TOKEN:-}" ]]; then
     exit 0
   fi
 else
-  log "ERROR: No OCM credentials found in ${CRED_DIR} (sso-client-id/secret or ocm-token)"
+  log "ERROR: No OCM credentials found in ${CRED_DIR} (sso-client-id/secret, backplane_client_id/secret or ocm-token)"
   $WAS_TRACING && set -x
   exit 0
 fi
