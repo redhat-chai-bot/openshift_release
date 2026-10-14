@@ -42,3 +42,10 @@ ref:
     - Backups, Restores, VolumeSnapshots (Velero)
     - Nodes and CSRs from the guest cluster (if kubeconfig is available)
     Runs as a best-effort post step; partial failures do not block the job.
+    Always exits zero. collection-status.txt records sanitized status, stage,
+    query counts, diagnostic limitations, and whether guest collection was
+    attempted or skipped. NO DATA means no CR query returned successful nonempty
+    output; PARTIAL means some queries failed, diagnostics were limited, or
+    collection stopped early. Complete covers only available kubeconfigs and
+    successful nonempty command output, not resource existence or health.
+    The status artifact contains no command output, credentials, or cluster IDs.

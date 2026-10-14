@@ -12,8 +12,26 @@ log() {
 }
 
 # Always exit 0 so the step never blocks job completion.
+write_status() {
+  printf 'status=%s\nstage=%s\nattempted=%s\nsucceeded=%s\nfailed=%s\nlimitations=%s\nguest=%s\n' \
+    "${collection_status}" "${collection_stage}" "${attempted}" "${succeeded}" \
+    "${failed}" "${limitations}" "${guest_status}" > "${CR_DIR}/collection-status.txt" || \
+    log "ERROR: Could not write collection status artifact."
+}
+
 cleanup() {
-  log "CR status collection complete."
+  if (( succeeded == 0 )); then
+    collection_status=no_data
+    log "WARNING: NO DATA: no CR queries produced successful nonempty output."
+  elif [[ "${collection_stage}" != finished ]] || (( failed > 0 || limitations > 0 )); then
+    collection_status=partial
+    log "WARNING: PARTIAL CR collection."
+  else
+    collection_status=complete
+    log "CR collection complete for available kubeconfigs."
+  fi
+  write_status
+  log "Collection status: ${collection_status}; stage=${collection_stage}; attempted=${attempted}; succeeded=${succeeded}; failed=${failed}; limitations=${limitations}; guest=${guest_status}"
   if [[ -d "${CR_DIR:-}" ]]; then
     log "Output files:"
     ls -lh "${CR_DIR}" 2>/dev/null || true
@@ -23,7 +41,15 @@ cleanup() {
 trap cleanup EXIT
 
 CR_DIR="${ARTIFACT_DIR}/cr-status"
+collection_status=in_progress
+collection_stage=cluster_id
+attempted=0
+succeeded=0
+failed=0
+limitations=0
+guest_status=not_reached
 mkdir -p "${CR_DIR}"
+write_status
 
 # ---- resolve cluster ID -----------------------------------------------------
 
@@ -32,6 +58,7 @@ if [[ -f "${SHARED_DIR}/cluster-id" ]]; then
   CLUSTER_ID="$(cat "${SHARED_DIR}/cluster-id" | tr -d '[:space:]')"
 fi
 if [[ -z "${CLUSTER_ID}" ]]; then
+  collection_stage=missing_cluster_id
   log "WARNING: No cluster-id found in SHARED_DIR. Skipping CR collection."
   exit 0
 fi
@@ -47,6 +74,8 @@ bin_dir="$(mktemp -d /tmp/backplane-bin.XXXXXX)"
 export PATH="${bin_dir}:${PATH}"
 
 log "Installing ocm-backplane CLI v${bp_ver}..."
+collection_stage=download_cli
+write_status
 bp_tar="$(mktemp /tmp/ocm-backplane.XXXXXX.tar.gz)"
 if ! curl -sSL --fail --connect-timeout 30 --max-time 300 -o "${bp_tar}" \
   "https://github.com/openshift/backplane-cli/releases/download/v${bp_ver}/ocm-backplane_${bp_ver}_Linux_x86_64.tar.gz"; then
@@ -59,6 +88,7 @@ chmod 0755 "${bin_dir}/ocm-backplane" 2>/dev/null || true
 rm -f "${bp_tar}"
 
 if [[ ! -x "${bin_dir}/ocm-backplane" ]]; then
+  collection_stage=extract_cli
   log "ERROR: ocm-backplane binary not found after extraction"
   exit 0
 fi
@@ -107,6 +137,8 @@ if [[ -z "${OCM_TOKEN:-}" && -f "${CRED_DIR}/ocm-token" ]]; then
 fi
 
 if [[ -n "${SSO_CLIENT_ID}" && -n "${SSO_CLIENT_SECRET}" ]]; then
+  collection_stage=ocm_login
+  write_status
   log "Logging into OCM (${OCM_LOGIN_ENV}) with SSO credentials"
   if ! ocm login --url "${OCM_LOGIN_ENV}" \
        --client-id "${SSO_CLIENT_ID}" --client-secret "${SSO_CLIENT_SECRET}" 2>/dev/null; then
@@ -115,6 +147,8 @@ if [[ -n "${SSO_CLIENT_ID}" && -n "${SSO_CLIENT_SECRET}" ]]; then
     exit 0
   fi
 elif [[ -n "${OCM_TOKEN:-}" ]]; then
+  collection_stage=ocm_login
+  write_status
   log "Logging into OCM (${OCM_LOGIN_ENV}) with offline token"
   if ! ocm login --url "${OCM_LOGIN_ENV}" --token "${OCM_TOKEN}" 2>/dev/null; then
     log "ERROR: OCM login with token failed"
@@ -122,6 +156,7 @@ elif [[ -n "${OCM_TOKEN:-}" ]]; then
     exit 0
   fi
 else
+  collection_stage=missing_credentials
   log "ERROR: No OCM credentials found in ${CRED_DIR} (sso-client-id/secret or ocm-token)"
   $WAS_TRACING && set -x
   exit 0
@@ -133,12 +168,16 @@ log "OCM login successful (${OCM_LOGIN_ENV})"
 # ---- backplane login + elevate ----------------------------------------------
 
 log "Running ocm-backplane login for ${CLUSTER_ID}..."
+collection_stage=backplane_login
+write_status
 if ! ocm-backplane login "${CLUSTER_ID}" 2>&1; then
   log "ERROR: Backplane login failed for cluster ${CLUSTER_ID}"
   exit 0
 fi
 
 log "Elevating backplane access (reason: ${elevate_reason})..."
+collection_stage=backplane_elevate
+write_status
 if ! ocm-backplane elevate "${elevate_reason}" -- config view --raw --minify > "${BP_KUBECONFIG}" 2>&1; then
   log "ERROR: Failed to get elevated backplane kubeconfig"
   rm -f "${BP_KUBECONFIG}"
@@ -148,6 +187,7 @@ chmod 0600 "${BP_KUBECONFIG}"
 
 # Verify access
 if ! oc whoami > "${CR_DIR}/whoami.txt" 2>&1; then
+  limitations=$((limitations + 1))
   log "WARNING: oc whoami failed -- cluster access may be limited"
   cat "${CR_DIR}/whoami.txt" 2>/dev/null || true
 fi
@@ -181,9 +221,22 @@ if [[ -n "${HC_NS}" ]]; then
   log "Found HC namespace: ${HC_NS}"
 else
   log "WARNING: Could not determine HC namespace -- dumping CRs from all namespaces"
+  limitations=$((limitations + 1))
 fi
 
 # ---- helper: dump a CR to a file -------------------------------------------
+
+record_result() {
+  local result="$1"
+  local filename="$2"
+  attempted=$((attempted + 1))
+  if [[ "${result}" == 0 && -s "${CR_DIR}/${filename}" ]]; then
+    succeeded=$((succeeded + 1))
+  else
+    failed=$((failed + 1))
+  fi
+  write_status
+}
 
 dump_cr() {
   local resource="$1"
@@ -192,15 +245,18 @@ dump_cr() {
 
   log "  Dumping ${resource}..."
   if [[ -n "${namespace}" ]]; then
-    oc get "${resource}" -n "${namespace}" -o yaml > "${CR_DIR}/${filename}" 2>&1 || true
+    oc get "${resource}" -n "${namespace}" -o yaml > "${CR_DIR}/${filename}" 2>&1
   else
-    oc get "${resource}" -A -o yaml > "${CR_DIR}/${filename}" 2>&1 || true
+    oc get "${resource}" -A -o yaml > "${CR_DIR}/${filename}" 2>&1
   fi
+  record_result "$?" "${filename}"
 }
 
 # ---- MC-level HyperShift CRs -----------------------------------------------
 
 log "--- Management Cluster HyperShift CR collection ---"
+collection_stage=collect_crs
+write_status
 
 dump_cr "hostedclusters.hypershift.openshift.io" "hostedclusters.yaml" "${HC_NS}"
 dump_cr "hostedcontrolplanes.hypershift.openshift.io" "hostedcontrolplanes.yaml" "${HC_NS}"
@@ -231,17 +287,22 @@ if [[ ! -f "${GUEST_KUBECONFIG}" ]]; then
 fi
 
 if [[ -f "${GUEST_KUBECONFIG}" ]]; then
+  guest_status=attempted
   log "--- Guest cluster CR collection (kubeconfig: ${GUEST_KUBECONFIG}) ---"
 
   log "  Dumping nodes..."
   oc --kubeconfig="${GUEST_KUBECONFIG}" get nodes -o yaml \
-    > "${CR_DIR}/guest-nodes.yaml" 2>&1 || true
+    > "${CR_DIR}/guest-nodes.yaml" 2>&1
+  record_result "$?" "guest-nodes.yaml"
 
   log "  Dumping certificatesigningrequests..."
   oc --kubeconfig="${GUEST_KUBECONFIG}" get certificatesigningrequests -o yaml \
-    > "${CR_DIR}/guest-csrs.yaml" 2>&1 || true
+    > "${CR_DIR}/guest-csrs.yaml" 2>&1
+  record_result "$?" "guest-csrs.yaml"
 else
+  guest_status=skipped_no_kubeconfig
   log "No guest cluster kubeconfig found in SHARED_DIR -- skipping guest CR collection"
 fi
 
 # ---- summary (handled by cleanup trap) --------------------------------------
+collection_stage=finished
