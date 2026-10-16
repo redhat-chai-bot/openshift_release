@@ -60365,7 +60365,7 @@ periodics:
         secretName: result-aggregator
 - agent: kubernetes
   cluster: build12
-  cron: 0 8 * * 1-4
+  cron: 0 9 * * 1-4
   decorate: true
   decoration_config:
     skip_cloning: true
