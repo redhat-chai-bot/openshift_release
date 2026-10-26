@@ -296,7 +296,8 @@ function ValidateAcsHealth () {
     centralNs="${centralNamespaces%%$'\n'*}"
 
     if [[ -z "${centralNs}" ]]; then
-        echo "WARNING: No Central CR found; skipping Central validation"
+        echo >&2 "ERROR: No Central CR found; post-upgrade ACS health check cannot proceed"
+        return 1
     else
         typeset centralStatus
         centralStatus="$(oc get central -n "${centralNs}" \
@@ -331,7 +332,8 @@ function ValidateAcsHealth () {
     scNs="${scNamespaces%%$'\n'*}"
 
     if [[ -z "${scNs}" ]]; then
-        echo "WARNING: No SecuredCluster CR found; skipping SecuredCluster validation"
+        echo >&2 "ERROR: No SecuredCluster CR found; post-upgrade ACS health check cannot proceed"
+        return 1
     else
         typeset scStatus
         scStatus="$(oc get securedcluster -n "${scNs}" \
@@ -470,10 +472,10 @@ function Main () {
             echo "InstallPlan ${prePatchPlan} already complete; no pending upgrade"
             exit 0
         fi
-        RequireInitialVersion "${currentVersion}" >/dev/null
+        RequireInitialVersion "${currentVersion}" >/dev/null || exit 3
         installPlan="${prePatchPlan}"
     else
-        RequireInitialVersion "${currentVersion}" >/dev/null
+        RequireInitialVersion "${currentVersion}" >/dev/null || exit 3
         echo "Patching subscription channel: ${currentChannel} -> ${targetChannel}"
         oc patch subscription "${ACS_SUBSCRIPTION_NAME}" \
             -n "${ACS_SUBSCRIPTION_NAMESPACE}" \
