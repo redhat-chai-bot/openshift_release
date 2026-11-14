@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -15,11 +16,16 @@ SCRIPT = ROOT / "ci-operator/step-registry/aro-hcp/test/persistent/aro-hcp-test-
 
 
 class PersistentConfigTest(unittest.TestCase):
-    def run_entrypoint(self, cloud, environment, profile, **extra):
+    def run_entrypoint(self, cloud, environment, profile, slot_environment=None, **extra):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             for name in ("bin", "test", "shared", "artifacts"):
                 (work / name).mkdir()
+            if slot_environment:
+                (work / "shared/aro-hcp-slot.env").write_text("".join(
+                    f"export {key}={shlex.quote(value)}\n"
+                    for key, value in slot_environment.items()
+                ))
             source = os.environ.get("ARO_HCP_SOURCE_DIR")
             if source:
                 (work / "config").symlink_to(Path(source).resolve() / "config")
@@ -82,7 +88,8 @@ exec bash "$1"
             self.assertEqual(result.returncode, 0, result.stderr)
             captured = json.loads((work / "capture.json").read_text())
             self.assertEqual(captured["VAULT_SECRET_PROFILE"], profile)
-            self.assertEqual(captured["CLUSTER_PROFILE_DIR"], f"/var/run/aro-hcp-{profile}")
+            expected_profile = (slot_environment or {}).get("SELECTED_CLUSTER_PROFILE_DIR", f"/var/run/aro-hcp-{profile}")
+            self.assertEqual(captured["CLUSTER_PROFILE_DIR"], expected_profile)
             self.assertEqual(captured["ARO_HCP_CONFIG_FILE"], str(work / "config/config.yaml"))
             captured["ARO_HCP_CONFIG_FILE_OVERRIDE"] = captured["ARO_HCP_CONFIG_FILE_OVERRIDE"].replace(str(work), "$WORK")
             return captured
@@ -117,6 +124,24 @@ exec bash "$1"
     def test_location_override_preserved(self):
         captured = self.run_entrypoint("public", "stg", "stg-rh", MULTISTAGE_PARAM_OVERRIDE_LOCATION="uksouth")
         self.assertEqual(captured["REGION"], "uksouth")
+
+    def test_slot_environment_precedence(self):
+        slot_environment = {
+            "ARO_HCP_DEPLOY_ENV": "prod",
+            "SELECTED_CLUSTER_PROFILE_DIR": "/var/run/aro-hcp-prod-rh",
+            "SELECTED_LOCATION": "westus3",
+            "CUSTOMER_SUBSCRIPTION": "offline subscription",
+        }
+        for override in ("", "uksouth"):
+            with self.subTest(location_override=override):
+                captured = self.run_entrypoint(
+                    "public", "stg", "stg-rh", slot_environment=slot_environment,
+                    LOCATION="unused-location", MULTISTAGE_PARAM_OVERRIDE_LOCATION=override,
+                )
+                self.assertEqual(captured["ARO_HCP_CLOUD"], "public")
+                self.assertEqual(captured["DEPLOY_ENV"], "prod")
+                self.assertEqual(captured["REGION"], override or "westus3")
+                self.assertEqual(captured["ARO_HCP_CONFIG_FILE_OVERRIDE"], "$WORK/config/config.msft.clouds-overlay.yaml")
 
 
 if __name__ == "__main__":
