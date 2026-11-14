@@ -50,9 +50,9 @@ ref:
       default: ""
       documentation: Suite to run.  For example, integration/parallel.
     - name: ARO_HCP_CLOUD
-      default: "dev"
+      default: "public"
       documentation: |-
-        Config cloud name (dev, public). Public environments use the repository's
+        Config cloud name (defaults to public). Public environments use the repository's
         config.msft.clouds-overlay.yaml unless a config override is already supplied.
     - name: ARO_HCP_DEPLOY_ENV
       default: ""

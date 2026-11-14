@@ -51,7 +51,7 @@ if [[ -n "${ARO_HCP_DEPLOY_ENV:-}" ]]; then
 fi
 
 export ARO_HCP_CONFIG_FILE="${PWD}/config/config.yaml"
-export ARO_HCP_CLOUD="${ARO_HCP_CLOUD:-dev}"
+export ARO_HCP_CLOUD="${ARO_HCP_CLOUD:-public}"
 export DEPLOY_ENV="${ARO_HCP_DEPLOY_ENV:?ARO_HCP_DEPLOY_ENV must name a configuration environment}"
 if [[ "${ARO_HCP_CLOUD}" == "public" ]]; then
   export ARO_HCP_CONFIG_FILE_OVERRIDE="${ARO_HCP_CONFIG_FILE_OVERRIDE:-${PWD}/config/config.msft.clouds-overlay.yaml}"
