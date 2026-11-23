@@ -28,6 +28,58 @@ IMAGE_ID = "sha256:" + "b" * 64
 REVISION = "c" * 40
 SOURCE = "https://github.com/openshift-online/rosa-backend-tests"
 IMAGE_REPOSITORY = "quay.io/redhat-services-prod/rosa-tenant/rosa-backend-tests/rosa-backend-tests"
+CREDENTIAL_ARTIFACT = "ocm-fvt-credential-mount-diagnostics.json"
+CREDENTIAL_MOUNT = "/usr/local/cs-qe-credentials"
+AWS_CREDENTIALS = "AWS_SHARED_CREDENTIALS_FILE"
+VPC_CREDENTIALS = "SHARED_VPC_AWS_SHARED_CREDENTIALS_FILE"
+# Every string the credential preflight may put in its artifact. The artifact
+# is published, so a value out of the env file or the credential mount
+# reaching it is the failure these fixtures exist to catch: the check is an
+# allowlist rather than a search for known fixture secrets, so a leak of
+# something the fixture did not plant fails too.
+CREDENTIAL_VOCABULARY = frozenset({
+    AWS_CREDENTIALS, VPC_CREDENTIALS,
+    "schema", "measurement", "locus", "ci-step-pre-launch",
+    "credential_contents_read", "container_side_observation", "env_file_scan",
+    "credentials_mount", "step_side_state", "variables", "name", "source",
+    "assignments", "target", "step_side_readability", "container_side_readability",
+    "secret_sync", "state", "reason", "no-public-safe-contract", "unavailable",
+    "not-measured", "scanned", "truncated", "undecodable", "unreadable",
+    "step-default", "step-env-override", "credential-env-override",
+    "inline-podman-env", "env-file-passthrough", "unset", "indeterminate",
+    "credentials-mount", "credentials-mount-other", "other-step-mount",
+    "unmounted-path", "relative-path", "empty", "unsupported", "not-observed",
+    "readable-empty", "readable-nonempty", "missing", "not-regular",
+    "not-directory", "probe-error", "not-probed", "directory",
+})
+CREDENTIAL_READABILITY = frozenset({
+    "readable-empty", "readable-nonempty", "missing", "unreadable",
+    "not-regular", "probe-error", "not-probed",
+})
+
+
+def preflight_source():
+    """Return the credential preflight the step delivers to the launcher.
+
+    Taken out of the step script itself rather than kept as a copy here, so
+    these fixtures cannot drift away from the code that actually runs. The
+    block is found by the artifact it writes, not by its position.
+    """
+    script = (STEP / "rosa-e2e-ocm-fvt-commands.sh").read_text(encoding="utf-8")
+    blocks, collecting = [], None
+    for line in script.splitlines():
+        if collecting is None:
+            if line.endswith("<<'PY'"):
+                collecting = []
+        elif line == "PY":
+            blocks.append("\n".join(collecting))
+            collecting = None
+        else:
+            collecting.append(line)
+    found = [block for block in blocks if CREDENTIAL_ARTIFACT in block]
+    if len(found) != 1:
+        raise AssertionError("expected exactly one credential preflight in the step")
+    return found[0]
 
 
 def mock_artifact_command(command, arguments, base, case):
@@ -49,6 +101,10 @@ def mock_artifact_command(command, arguments, base, case):
         if case == "provenance-failure" and arguments == [
                 "-", str(base / "artifacts"), IMAGE_ID, IMAGE_REPOSITORY]:
             return 95
+        if (case == "credential-preflight-failure" and arguments[:2] == ["-", str(base / "artifacts")]
+                and CREDENTIAL_MOUNT in arguments):
+            print(SECRET, file=sys.stderr)
+            return 97
         if case == "collector-failure" and arguments == [
                 str(base / "shared/ocm-fvt-artifacts.py"), "metadata",
                 str(output), str(base / "artifacts/ocm-fvt-artifact-metadata.json")]:
@@ -102,7 +158,12 @@ def mock_command(command, arguments):
     case = os.environ["FIXTURE_CASE"]
     output = base / "artifacts/ocm-fvt-results"
     if command in ("cat", "env"):
-        if ((command == "cat" and arguments[0].startswith("/usr/local/cs-qe-credentials/"))
+        if command == "env" and arguments[0] == "-i" and case == "credential-env-override":
+            # The sourced credential environment exporting its own choice of
+            # credential file, which is what the preflight has to attribute.
+            print(AWS_CREDENTIALS + "=/credentials/other-cred")
+            return 0
+        if ((command == "cat" and arguments[0].startswith(CREDENTIAL_MOUNT + "/"))
                 or (command == "env" and arguments[0] == "-i")):
             return 0
         os.execv("/usr/bin/" + command, [command, *arguments])
@@ -197,7 +258,7 @@ class ArtifactFixture(unittest.TestCase):
                 f'--mock {command} "$@"\n', encoding="utf-8")
             executable.chmod(0o755)
 
-    def run_step(self, case="normal", exit_code=0, pull_error=False):
+    def run_step(self, case="normal", exit_code=0, pull_error=False, environment=None):
         result = subprocess.run(["bash", str(self.script)], env={
             "PATH": str(self.bin) + os.pathsep + os.defpath,
             "HOME": str(self.base), "ARTIFACT_DIR": str(self.artifacts),
@@ -205,6 +266,7 @@ class ArtifactFixture(unittest.TestCase):
             "OCM_FVT_JOB_NAME": "fixture", "FIXTURE_DIR": str(self.base),
             "FIXTURE_CASE": case, "FIXTURE_EXIT": str(exit_code),
             "OCM_FVT_DEFER_CLEAN": str(case in ("copy-failure", "find-failure")).lower(),
+            **(environment or {}),
         }, capture_output=True, text=True, timeout=30, umask=0o077, check=False)
         self.assertEqual(result.returncode, exit_code, result.stderr)
         calls = [json.loads(line) for line in (self.base / "calls.jsonl").read_text().splitlines()]
@@ -554,6 +616,285 @@ class ArtifactPostprocessingTests(ArtifactFixture):
 
     def test_collector_failure_does_not_fail_successful_test(self):
         self.check_collector_failure(0)
+
+
+class CredentialDiagnosticsTests(ArtifactFixture):
+    """The credential preflight, through the step the launcher actually runs."""
+
+    def diagnostics(self):
+        path = self.artifacts / CREDENTIAL_ARTIFACT
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+        self.assertEqual(path.stat().st_uid, os.geteuid())
+        contents = path.read_text(encoding="utf-8")
+        self.assertNotIn(SECRET, contents)
+        self.assertNotIn(str(self.base), contents)
+        self.assertLess(len(contents), 4096)
+        report = json.loads(contents)
+        for value in strings(report):
+            self.assertIn(value, CREDENTIAL_VOCABULARY,
+                          "the artifact published a string that is not a fixed label")
+        self.assertEqual(report["schema"], 1)
+        self.assertEqual(report["measurement"], {
+            "locus": "ci-step-pre-launch", "credential_contents_read": False,
+            "container_side_observation": "not-measured"})
+        self.assertEqual(report["secret_sync"],
+                         {"state": "unavailable", "reason": "no-public-safe-contract"})
+        for variable in report["variables"]:
+            # Readability is this step's own view of the mount before launch.
+            # The container reads a read-only relabelled bind as another user,
+            # which the step cannot see, and must never claim to.
+            self.assertIn(variable["step_side_readability"], CREDENTIAL_READABILITY)
+            self.assertEqual(variable["container_side_readability"], "not-measured")
+        return {variable["name"]: variable for variable in report["variables"]}
+
+    def test_default_choice_is_recorded_before_the_launcher(self):
+        self.run_step()
+        variables = self.diagnostics()
+        for name in (AWS_CREDENTIALS, VPC_CREDENTIALS):
+            self.assertEqual(variables[name]["source"], "step-default")
+            self.assertEqual(variables[name]["target"], "credentials-mount")
+            self.assertEqual(variables[name]["assignments"], 1)
+
+    def test_step_environment_override_is_attributed_to_the_step(self):
+        self.run_step(environment={"OCM_FVT_EXTRA_ENVS":
+                                   AWS_CREDENTIALS + "=/credentials/other-cred"})
+        variables = self.diagnostics()
+        self.assertEqual(variables[AWS_CREDENTIALS]["source"], "step-env-override")
+        self.assertEqual(variables[AWS_CREDENTIALS]["target"], "credentials-mount")
+        self.assertEqual(variables[AWS_CREDENTIALS]["assignments"], 2)
+        self.assertEqual(variables[VPC_CREDENTIALS]["source"], "step-default")
+
+    def test_credential_environment_override_is_attributed_past_the_boundary(self):
+        self.run_step("credential-env-override")
+        variables = self.diagnostics()
+        self.assertEqual(variables[AWS_CREDENTIALS]["source"], "credential-env-override")
+        self.assertEqual(variables[VPC_CREDENTIALS]["source"], "step-default")
+
+    def test_override_outside_every_mount_is_named_as_such(self):
+        self.run_step(environment={"OCM_FVT_EXTRA_ENVS": AWS_CREDENTIALS + "=/etc/passwd"})
+        self.assertEqual(self.diagnostics()[AWS_CREDENTIALS]["target"], "unmounted-path")
+
+    def test_value_split_by_a_line_break_character_is_not_read_as_two(self):
+        # Neither grep nor the launcher end a line on these, so reading one as
+        # a line ending would forge a second assignment and report the prefix
+        # of a value the container cannot open as a readable file.
+        for breaker in ("\x0c", " ", "\x85"):
+            with self.subTest(breaker=breaker):
+                self.setUp()
+                self.run_step(environment={
+                    "OCM_FVT_EXTRA_ENVS":
+                        AWS_CREDENTIALS + "=/credentials/aws-cred" + breaker + SECRET})
+                variable = self.diagnostics()[AWS_CREDENTIALS]
+                # Two lines, not three: the value stayed whole. A control
+                # character is unsupported; one that is not - U+2028, U+0085 -
+                # leaves a name the mount cannot hold, and either way the
+                # prefix is never reported as the readable default file.
+                self.assertEqual(variable["assignments"], 2)
+                self.assertEqual(variable["source"], "step-env-override")
+                self.assertIn(variable["target"],
+                              ("unsupported", "credentials-mount-other"))
+                self.assertEqual(variable["step_side_readability"], "not-probed")
+
+    def test_hostile_override_is_refused_without_probing(self):
+        for value in ("/credentials/../../etc/shadow", "/credentials/aws-cred/",
+                      "/credentials", "", "relative-cred"):
+            with self.subTest(value=value):
+                self.setUp()
+                self.run_step(environment={"OCM_FVT_EXTRA_ENVS":
+                                           AWS_CREDENTIALS + "=" + value})
+                variable = self.diagnostics()[AWS_CREDENTIALS]
+                self.assertIn(variable["target"], ("unsupported", "empty", "relative-path"))
+                self.assertEqual(variable["step_side_readability"], "not-probed")
+
+    def test_diagnostics_are_kept_when_the_suite_fails(self):
+        self.run_step(exit_code=42)
+        self.diagnostics()
+
+    def check_preflight_failure(self, exit_code):
+        result = self.run_step("credential-preflight-failure", exit_code)
+        self.assertIn("WARNING: failed to collect ocm-fvt credential mount diagnostics",
+                      result.stdout)
+        self.assertFalse((self.artifacts / CREDENTIAL_ARTIFACT).exists())
+        # The launcher still ran, and the suite's status still reached the step.
+        self.provenance()
+        self.metadata()
+
+    def test_preflight_failure_preserves_test_status(self):
+        self.check_preflight_failure(0)
+
+    def test_preflight_failure_preserves_failed_test_status(self):
+        self.check_preflight_failure(42)
+
+    def test_existing_diagnostics_artifact_is_not_overwritten(self):
+        (self.artifacts / CREDENTIAL_ARTIFACT).write_text(SECRET, encoding="utf-8")
+        self.run_step()
+        self.assertEqual((self.artifacts / CREDENTIAL_ARTIFACT).read_text(), SECRET)
+
+    def test_diagnostics_do_not_follow_an_existing_artifact_symlink(self):
+        (self.artifacts / CREDENTIAL_ARTIFACT).symlink_to(self.base / "outside/secret")
+        self.run_step()
+        self.assertEqual((self.base / "outside/secret").read_text(), SECRET)
+
+    def test_existing_fifo_does_not_block_the_launcher(self):
+        os.mkfifo(self.artifacts / CREDENTIAL_ARTIFACT)
+        self.run_step()
+        self.metadata()
+
+
+class CredentialPreflightTests(unittest.TestCase):
+    """The preflight on its own, over a credential mount it can be given.
+
+    The step names the real mount, so these drive the delivered code directly
+    to reach the file states a fixture cannot create under /usr/local.
+    """
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.base)
+        self.artifacts = self.base / "artifacts"
+        self.artifacts.mkdir()
+        self.mount = self.base / "credentials"
+        self.mount.mkdir()
+        self.script = self.base / "preflight.py"
+        self.script.write_text(preflight_source(), encoding="utf-8")
+
+    def run_preflight(self, lines, boundary="5", inline="", mount=None):
+        feed = self.base / "lines"
+        feed.write_bytes(lines.encode("utf-8") if isinstance(lines, str) else lines)
+        result = subprocess.run(
+            ["bash", "-c", 'exec 3<"$1"; shift; exec "$@"', "preflight", str(feed),
+             sys.executable, "-I", str(self.script), str(self.artifacts), boundary,
+             str(self.mount if mount is None else mount), inline],
+            capture_output=True, text=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = self.artifacts / CREDENTIAL_ARTIFACT
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+        contents = path.read_text(encoding="utf-8")
+        self.assertNotIn(SECRET, contents)
+        self.assertNotIn(str(self.base), contents)
+        report = json.loads(contents)
+        for value in strings(report):
+            self.assertIn(value, CREDENTIAL_VOCABULARY,
+                          "the artifact published a string that is not a fixed label")
+        path.unlink()
+        return report, {variable["name"]: variable for variable in report["variables"]}
+
+    def assignment(self, number, name, value):
+        """Render one allowlisted env-file line the way grep -n hands it over."""
+        return f"{number}:{name}={value}\n"
+
+    def test_recognized_choice_reports_the_mounted_file(self):
+        (self.mount / "aws-cred").write_text("[default]\n", encoding="utf-8")
+        (self.mount / "aws-shared-vpc-credentials").write_text("", encoding="utf-8")
+        report, variables = self.run_preflight(
+            self.assignment(1, AWS_CREDENTIALS, "/credentials/aws-cred")
+            + self.assignment(2, VPC_CREDENTIALS, "/credentials/aws-shared-vpc-credentials"))
+        self.assertEqual(report["credentials_mount"]["step_side_state"], "directory")
+        self.assertEqual(variables[AWS_CREDENTIALS]["step_side_readability"],
+                         "readable-nonempty")
+        # An empty credential file is the mount failure this exists to name.
+        self.assertEqual(variables[VPC_CREDENTIALS]["step_side_readability"],
+                         "readable-empty")
+
+    def test_projected_secret_links_are_followed(self):
+        data = self.mount / "..data"
+        data.mkdir()
+        (data / "aws-cred").write_text("[default]\n", encoding="utf-8")
+        (self.mount / "aws-cred").symlink_to(Path("..data") / "aws-cred")
+        _, variables = self.run_preflight(
+            self.assignment(1, AWS_CREDENTIALS, "/credentials/aws-cred"))
+        self.assertEqual(variables[AWS_CREDENTIALS]["step_side_readability"],
+                         "readable-nonempty")
+
+    def test_missing_unreadable_and_irregular_files_are_named_apart(self):
+        (self.mount / "unreadable").write_text("x", encoding="utf-8")
+        (self.mount / "unreadable").chmod(0)
+        self.addCleanup((self.mount / "unreadable").chmod, 0o600)
+        (self.mount / "directory").mkdir()
+        os.mkfifo(self.mount / "fifo")
+        expected = {"missing": "missing", "directory": "not-regular", "fifo": "not-regular"}
+        if os.geteuid() != 0:
+            expected["unreadable"] = "unreadable"
+        for name, readability in expected.items():
+            with self.subTest(name=name):
+                _, variables = self.run_preflight(
+                    self.assignment(24, AWS_CREDENTIALS, "/credentials/" + name))
+                self.assertEqual(variables[AWS_CREDENTIALS]["step_side_readability"],
+                                 readability)
+                self.assertEqual(variables[AWS_CREDENTIALS]["source"],
+                                 "credential-env-override")
+
+    def test_unknown_mount_states_are_named(self):
+        report, variables = self.run_preflight(
+            self.assignment(1, AWS_CREDENTIALS, "/credentials/aws-cred"),
+            mount=self.base / "absent")
+        self.assertEqual(report["credentials_mount"]["step_side_state"], "missing")
+        self.assertEqual(variables[AWS_CREDENTIALS]["step_side_readability"], "not-probed")
+
+    def test_probing_cannot_leave_the_credential_mount(self):
+        secret = self.base / "outside-secret"
+        secret.write_text(SECRET, encoding="utf-8")
+        for value in ("/credentials/../outside-secret", "/credentials/sub/cred",
+                      "/credentials/.hidden", "/credentials//aws-cred"):
+            with self.subTest(value=value):
+                _, variables = self.run_preflight(self.assignment(24, AWS_CREDENTIALS, value))
+                self.assertEqual(variables[AWS_CREDENTIALS]["step_side_readability"],
+                                 "not-probed")
+        self.assertEqual(secret.read_text(), SECRET)
+
+    def test_an_inline_podman_argument_takes_precedence_over_the_env_file(self):
+        _, variables = self.run_preflight(
+            self.assignment(1, AWS_CREDENTIALS, "/credentials/aws-cred"),
+            inline="AWS_ACCOUNT_OPERATOR_KUBECONFIG " + AWS_CREDENTIALS)
+        self.assertEqual(variables[AWS_CREDENTIALS]["source"], "inline-podman-env")
+        self.assertEqual(variables[AWS_CREDENTIALS]["target"], "not-observed")
+        self.assertEqual(variables[VPC_CREDENTIALS]["source"], "unset")
+
+    def test_a_bare_name_the_step_environment_lacks_leaves_the_assignment_standing(self):
+        (self.mount / "aws-cred").write_text("x", encoding="utf-8")
+        _, variables = self.run_preflight(
+            self.assignment(1, AWS_CREDENTIALS, "/credentials/aws-cred")
+            + "9:" + AWS_CREDENTIALS + "\n")
+        self.assertEqual(variables[AWS_CREDENTIALS]["source"], "step-default")
+        self.assertEqual(variables[AWS_CREDENTIALS]["step_side_readability"],
+                         "readable-nonempty")
+
+    def test_a_scan_that_did_not_see_the_whole_file_answers_indeterminate(self):
+        for lines in (self.assignment(24, AWS_CREDENTIALS, "/credentials/" + "z" * 20000),
+                      "".join(self.assignment(number, AWS_CREDENTIALS, "/credentials/c")
+                              for number in range(1, 200))):
+            with self.subTest(length=len(lines)):
+                report, variables = self.run_preflight(lines)
+                self.assertEqual(report["env_file_scan"], "truncated")
+                self.assertEqual(variables[AWS_CREDENTIALS]["source"], "indeterminate")
+                self.assertLessEqual(variables[AWS_CREDENTIALS]["assignments"], 64)
+
+    def test_undecodable_and_unreadable_scans_are_explicit(self):
+        report, variables = self.run_preflight(
+            b"24:" + AWS_CREDENTIALS.encode("ascii") + b"=/credentials/\xff\xfe\n")
+        self.assertEqual(report["env_file_scan"], "undecodable")
+        self.assertEqual(variables[AWS_CREDENTIALS]["source"], "indeterminate")
+
+    def test_a_forged_line_number_cannot_stop_the_preflight(self):
+        # int() refuses digits str.isdigit accepts, which would otherwise
+        # raise where nothing catches it and leave no artifact at all.
+        report, variables = self.run_preflight(
+            "²:" + AWS_CREDENTIALS + "=/credentials/aws-cred\n")
+        self.assertEqual(report["env_file_scan"], "scanned")
+        self.assertEqual(variables[AWS_CREDENTIALS]["source"], "unset")
+
+
+def strings(value):
+    """Yield every string the artifact publishes, keys and values alike."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from strings(item)
+    elif isinstance(value, str):
+        yield value
 
 
 if __name__ == "__main__":
