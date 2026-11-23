@@ -163,3 +163,76 @@ ref:
     does carry are rendered over a restricted character set with token-shaped
     runs reduced to their length, so that the manifest does not become the
     artifact the scanner replaces.
+
+    Immediately before the launcher starts, the step also writes
+    ocm-fvt-credential-mount-diagnostics.json. The container reads its AWS
+    credentials from the file named by AWS_SHARED_CREDENTIALS_FILE and
+    SHARED_VPC_AWS_SHARED_CREDENTIALS_FILE in the env file handed to podman.
+    That file is assembled from the fixed block this step writes,
+    OCM_FVT_EXTRA_ENVS and the environment a sourced credential file exports,
+    and the last assignment of a name is the one podman applies, so the
+    credential file a run actually uses is not always the one this step named.
+    When the choice moved, or the file is not in the mount, the run fails
+    inside the container with an authentication error that identifies neither.
+    The artifact answers both questions from the env file in its final launch
+    state, before the launcher runs, so the answer survives a failed run.
+
+    For each of those two variables it records a fixed source - step-default
+    when the effective assignment still carries the value this step writes,
+    step-env-override or credential-env-override when a later assignment
+    replaced it, before or after the sourced credential environment was folded
+    in, inline-podman-env when a -e argument of the same name takes precedence
+    over the env file, env-file-passthrough when the env file carries the bare
+    name last and this step's own environment holds it, so the launcher
+    substitutes that value, or unset - the number of assignments seen, and a
+    fixed category for where the chosen path leads: credentials-mount,
+    credentials-mount-other, other-step-mount, unmounted-path, relative-path,
+    empty, unsupported, or not-observed when the value is one the step
+    deliberately does not look at. A bare name the step's environment does not
+    hold changes nothing, so the assignment before it is reported instead. A
+    path is modelled as the container will open it, so a component that is
+    empty, a dot or a dot-dot - a trailing slash among them - is unsupported
+    rather than folded away into a file that would be reported present.
+    Nothing but those categories, the two fixed variable names and bounded
+    integers is emitted: no path, value, file name, env-file line or exception
+    text, and nothing from any other variable in the env file, since only the
+    two allowlisted assignment lines are extracted and they are handed over on
+    a descriptor rather than a command line.
+
+    The scan itself is reported too, as scanned, truncated, undecodable or
+    unreadable. It reads at most 16 KiB and 64 assignment lines, and a scan
+    that did not see all of them cannot say which assignment is the last one,
+    so every variable is then reported with the source indeterminate rather
+    than with the last of the assignments the scan happened to reach.
+
+    Readability is reported as a fixed category - readable-nonempty,
+    readable-empty, missing, unreadable, not-regular, probe-error or
+    not-probed - and only for a value that names one plain file in the
+    credential mount, so a value out of the job's own environment cannot send
+    the probe anywhere else. It is measured step-side, in this step's own
+    mount of the collection and before the launcher starts; the container runs
+    as another user against a read-only relabelled bind of the same directory,
+    which this step cannot observe, so every record carries that distinction
+    explicitly and container-side readability is reported as not-measured
+    rather than inferred from the step-side result. No credential file is
+    read: the probe stats the entry and opens and closes it to learn whether
+    it opens, issues no read, and emits no content, fragment, hash or byte
+    count - readable-empty and readable-nonempty are two categories, which is
+    the one bit a mount that produced an empty credential file needs.
+
+    Whether the mounted credentials match the version the secret store holds
+    is recorded as unavailable. No public-safe metadata contract exposes a
+    version or a sync state to this step, and the step does not query the
+    secret store, so the field says that rather than inferring freshness from
+    something that does not report it.
+
+    The preflight is best effort and bounded. Everything that touches the env
+    file runs with tracing off; the one statement outside that, taken earlier,
+    counts the file's lines and so can disclose a line count and nothing else.
+    It never changes the env file, the mounts, the launcher, the suite's exit
+    status or cleanup, every step of it absorbs its own failure, and a failure
+    to collect or persist it leaves only a warning in the log. The artifact is
+    written before the launcher, so it is kept when the run that follows
+    fails, and it is an uploaded artifact like the others, scanned like the
+    others; carrying no value out of the env file or the mount is what makes
+    it unlikely to match, and this step claims no more.

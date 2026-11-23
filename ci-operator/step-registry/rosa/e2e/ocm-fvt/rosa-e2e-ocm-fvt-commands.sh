@@ -258,6 +258,14 @@ fi
 
 cred_sources='source /usr/local/cs-qe-credentials/ocm-tokens'
 
+# Line count of the env file before the credential environment is folded in,
+# so the credential mount preflight below can tell an assignment this step
+# configured from one the sourced credential environment brought with it. It
+# is a count of lines, taken without reading any value, and a failure to take
+# it leaves the preflight without a boundary rather than failing the step.
+ocm_fvt_cred_env_boundary="$(wc -l < "${podman_env_file}" 2>/dev/null)" ||
+  ocm_fvt_cred_env_boundary=""
+
 env -i bash --norc --noprofile -c "
   ${cred_sources}
   env | grep -v '^_='
@@ -480,6 +488,301 @@ PY
 unset image_inspection
 $WAS_TRACING_DIGEST && set -x
 echo "=========================="
+
+# Credential mount preflight, taken from the env file in its final launch
+# state, immediately before the launcher starts. Which credential file the
+# container actually uses is decided by the last assignment of the variable in
+# that file, and the file is assembled from the fixed block above,
+# OCM_FVT_EXTRA_ENVS and the sourced credential environment, so the choice is
+# not always the one this step wrote. Only the allowlisted variable lines are
+# extracted and handed over, on a descriptor rather than a command line, and
+# the diagnostic emits fixed categories only. Best effort: it never changes
+# what the launcher does and never affects the step's status.
+[[ $- == *x* ]] && WAS_TRACING_CRED=true || WAS_TRACING_CRED=false
+set +x
+ocm_fvt_cred_env_lines="$(
+  { grep -n -E '^(AWS_SHARED_CREDENTIALS_FILE|SHARED_VPC_AWS_SHARED_CREDENTIALS_FILE)(=|$)' \
+      "${podman_env_file}" 2>/dev/null || true; } | head -c 16385
+)" || ocm_fvt_cred_env_lines=""
+# Names only. A -e flag overrides --env-file for the same name, so the
+# preflight has to know which names carry one; their values stay untouched.
+ocm_fvt_cred_inline_names=""
+for ocm_fvt_cred_inline in "${aao_kubeconfig_env[@]}" "${dr_aws_creds_env[@]}" \
+  "${zero_egress_env[@]}"; do
+  [[ "${ocm_fvt_cred_inline}" == "-e" ]] && continue
+  ocm_fvt_cred_inline_names+="${ocm_fvt_cred_inline%%=*} "
+done
+(
+  umask 022
+  timeout 10s python3 - "${ARTIFACT_DIR}" "${ocm_fvt_cred_env_boundary}" \
+    /usr/local/cs-qe-credentials "${ocm_fvt_cred_inline_names}" \
+    3<<<"${ocm_fvt_cred_env_lines}" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+# Credential mount preflight. The container reads its AWS credentials from the
+# file named by a variable in the env file handed to the launcher. That file
+# is assembled from several sources and the launcher applies the last
+# assignment of a name, so a run can fail inside the container with an
+# authentication error that says neither which file was chosen nor whether it
+# was there. This records both, before the launcher starts.
+#
+# Every field is a member of a vocabulary fixed in this file, a fixed variable
+# name, or a bounded integer. No path, value, file name or exception text is
+# emitted, and no credential file is read: a file is opened and closed to
+# learn whether it can be opened, and no read is ever issued on it.
+SCHEMA = 1
+ARTIFACT = "ocm-fvt-credential-mount-diagnostics.json"
+# The credential-file variables the fixed block in the step writes, with the
+# value it writes for each. Both are constants of this step, so reporting that
+# the effective assignment still carries one of them discloses nothing; the
+# value itself is only ever compared, never emitted.
+VARIABLES = {
+    "AWS_SHARED_CREDENTIALS_FILE": "/credentials/aws-cred",
+    "SHARED_VPC_AWS_SHARED_CREDENTIALS_FILE": "/credentials/aws-shared-vpc-credentials",
+}
+# Container-side destinations of the -v arguments this step can pass. A value
+# under none of them names a path the container will not have mounted.
+CREDENTIALS_MOUNT = "/credentials"
+CREDENTIALS_DEPTH = len([part for part in CREDENTIALS_MOUNT.split("/") if part])
+OTHER_MOUNTS = ("/credentials-hive", "/usr/local/backplane-bin", "/usr/local/rhobs-oidc",
+                "/home/ci-user/.config", "/home/ci-user/.gcp", "/ocm-backend-tests/output")
+MAX_SCAN = 16384
+MAX_LINES = 64
+MAX_VALUE = 4096
+# A name probed step-side is one plain component: no separator, no relative
+# component and no leading dot, so a value taken from the env file cannot send
+# the probe outside the credential mount.
+SAFE_NAME = re.compile(r"[0-9A-Za-z][0-9A-Za-z._-]{0,127}")
+# The line number grep puts in front of a match. Matched rather than tested
+# with isdigit, which accepts digits int() then refuses, such as a superscript.
+SCAN_NUMBER = re.compile(r"[0-9]{1,9}")
+
+
+def scan():
+    """Read the allowlisted assignment lines, as <line>:<name>[=<value>].
+
+    Returns the assignments per tracked name, in file order, and the state of
+    the scan itself, so a reader can tell a complete scan from one that was
+    cut short or could not be decoded. A bare name carries no value of its
+    own - the launcher resolves it elsewhere - so it is recorded as a value
+    of None rather than as no assignment at all.
+    """
+    found = {name: [] for name in VARIABLES}
+    try:
+        with os.fdopen(3, "rb") as lines:
+            raw = lines.read(MAX_SCAN + 1)
+    except OSError:
+        return found, "unreadable"
+    state = "scanned"
+    if len(raw) > MAX_SCAN:
+        # A value longer than the window is cut here, so the scan says it was
+        # truncated rather than classifying a prefix as the whole choice.
+        state = "truncated"
+        raw = raw[:MAX_SCAN]
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return found, "undecodable"
+    # Split on the newline alone. str.splitlines also breaks on characters a
+    # value may legitimately carry - a form feed, U+2028 - which neither grep
+    # nor the launcher treat as a line ending, and breaking there would cut a
+    # value in half and read its tail as another assignment.
+    for index, line in enumerate(text.split("\n")):
+        if index == MAX_LINES:
+            state = "truncated"
+            break
+        number, marked, rest = line.partition(":")
+        name, assigned, value = rest.partition("=")
+        if marked and SCAN_NUMBER.fullmatch(number) and name in found:
+            found[name].append((int(number), value if assigned else None))
+    return found, state
+
+
+def classify(value):
+    """Classify one effective value as a mount category and a probe name.
+
+    The category says where the container would look; the name is returned
+    only for the one case the step can measure, a single plain component in
+    the credential mount.
+    """
+    if len(value) > MAX_VALUE:
+        return "unsupported", None
+    if not value:
+        return "empty", None
+    if any(character < " " or character == "\x7f" for character in value):
+        return "unsupported", None
+    if not value.startswith("/"):
+        return "relative-path", None
+    parts = value[1:].split("/")
+    # An empty, dot or dot-dot component is refused rather than folded away.
+    # The container opens the value as it stands, where a trailing slash
+    # demands a directory, so collapsing one here would report a path the
+    # container cannot open as a file that is present and readable.
+    if any(part in ("", ".", "..") for part in parts):
+        return "unsupported", None
+    normalized = "/" + "/".join(parts)
+    if normalized == CREDENTIALS_MOUNT:
+        # The mount itself, not a file in it.
+        return "unsupported", None
+    if normalized.startswith(CREDENTIALS_MOUNT + "/"):
+        rest = parts[CREDENTIALS_DEPTH:]
+        if len(rest) == 1 and SAFE_NAME.fullmatch(rest[0]):
+            return "credentials-mount", rest[0]
+        return "credentials-mount-other", None
+    for mount in OTHER_MOUNTS:
+        if normalized == mount or normalized.startswith(mount + "/"):
+            return "other-step-mount", None
+    return "unmounted-path", None
+
+
+def probe(name, mount):
+    """Classify the step-side file backing one credential-mount name.
+
+    Symlinks are followed: a projected secret mount is a link per key, so
+    refusing to follow one would report every key as unreadable. Nothing is
+    read - the open is the readability test and the descriptor is closed
+    straight away - and the size is taken from the stat, not from content.
+    """
+    if mount is None:
+        return "not-probed"
+    try:
+        info = os.stat(name, dir_fd=mount)
+    except FileNotFoundError:
+        return "missing"
+    except PermissionError:
+        return "unreadable"
+    except OSError:
+        return "probe-error"
+    if not stat.S_ISREG(info.st_mode):
+        return "not-regular"
+    try:
+        descriptor = os.open(name, os.O_RDONLY | os.O_NONBLOCK, dir_fd=mount)
+    except PermissionError:
+        return "unreadable"
+    except OSError:
+        return "probe-error"
+    os.close(descriptor)
+    return "readable-empty" if info.st_size == 0 else "readable-nonempty"
+
+
+def open_mount(path):
+    """Open the credential mount step-side, and say what state it is in."""
+    try:
+        return "directory", os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except FileNotFoundError:
+        return "missing", None
+    except NotADirectoryError:
+        return "not-directory", None
+    except PermissionError:
+        return "unreadable", None
+    except OSError:
+        return "probe-error", None
+
+
+def resolve(name, records, context):
+    """Name where the launcher's effective choice for one variable comes from.
+
+    An inline -e of the same name wins over the env file, and its value is
+    deliberately not looked at, so that case reports the precedence and stops
+    there. Otherwise the last assignment in the env file is the effective one,
+    and where it sits relative to the credential environment says whether this
+    step configured it or the sourced credential environment carried it in.
+
+    A scan that did not see the whole file cannot say which assignment is the
+    last one, so it answers indeterminate rather than naming the last of the
+    assignments it happened to read.
+    """
+    if name in context["inline"]:
+        return "inline-podman-env", None
+    if context["state"] != "scanned":
+        return "indeterminate", None
+    # A bare name carries no value of its own: the launcher substitutes this
+    # step's environment when it holds the name, and otherwise leaves the
+    # assignment before it standing, so the bare line is passed over.
+    if records and records[-1][1] is None and name in os.environ:
+        return "env-file-passthrough", os.environ[name]
+    assigned = [record for record in records if record[1] is not None]
+    if not assigned:
+        return "unset", None
+    number, value = assigned[-1]
+    if value == VARIABLES[name]:
+        return "step-default", value
+    if number <= context["boundary"]:
+        return "step-env-override", value
+    return "credential-env-override", value
+
+
+def describe(name, records, context):
+    """Report one variable as the launcher will resolve it."""
+    source, value = resolve(name, records, context)
+    target, probed = ("not-observed", None) if value is None else classify(value)
+    return {
+        "name": name,
+        "source": source,
+        "assignments": len(records),
+        "target": target,
+        # Measured in this step's own mount of the credential collection. The
+        # container runs as another user against a read-only, relabelled bind
+        # of the same directory, which this step cannot observe before the
+        # launcher starts, so the two are reported apart and never conflated.
+        "step_side_readability": ("not-probed" if probed is None
+                                  else probe(probed, context["mount"])),
+        "container_side_readability": "not-measured",
+    }
+
+
+def main():
+    """Write the preflight artifact; a diagnostic never fails the step."""
+    directory, boundary, mount_path, inline = sys.argv[1:5]
+    try:
+        boundary = int(boundary)
+    except ValueError:
+        boundary = -1
+    found, state = scan()
+    mount_state, mount = open_mount(mount_path)
+    context = {"inline": set(inline.split()), "boundary": boundary,
+               "mount": mount, "state": state}
+    try:
+        variables = [describe(name, found[name], context)
+                     for name in sorted(VARIABLES)]
+    finally:
+        if mount is not None:
+            os.close(mount)
+    report = {
+        "schema": SCHEMA,
+        "measurement": {
+            "locus": "ci-step-pre-launch",
+            "credential_contents_read": False,
+            "container_side_observation": "not-measured",
+        },
+        "env_file_scan": state,
+        "credentials_mount": {"step_side_state": mount_state},
+        "variables": variables,
+        # Whether the mounted credentials match the version the secret store
+        # holds is not recorded: no public-safe metadata contract exposes a
+        # version or a sync state to this step, and the step does not query
+        # the secret store, so the field says so rather than guessing.
+        "secret_sync": {"state": "unavailable", "reason": "no-public-safe-contract"},
+    }
+    try:
+        descriptor = os.open(os.path.join(directory, ARTIFACT),
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        with os.fdopen(descriptor, "w") as artifact:
+            json.dump(report, artifact, sort_keys=True)
+            artifact.write("\n")
+    except OSError:
+        print("WARNING: failed to persist ocm-fvt credential mount diagnostics")
+
+
+main()
+PY
+) 2>/dev/null || echo "WARNING: failed to collect ocm-fvt credential mount diagnostics"
+unset ocm_fvt_cred_env_lines ocm_fvt_cred_inline_names ocm_fvt_cred_inline
+$WAS_TRACING_CRED && set -x
 
 echo "Running ocmtest: ${ocmtest_args[*]}"
 exit_code=0
